@@ -22,6 +22,11 @@ import (
 
 var k8sClient client.Client
 
+var (
+	log = logrus.WithField("module", "k8s")
+)
+
+
 func init() {
 	k8sClient = GetClient()
 }
@@ -31,24 +36,17 @@ func GetClient() client.Client {
 	scheme := runtime.NewScheme()
 	// register cnvrg mlops gvr
 	if err := mlopsv1.AddToScheme(scheme); err != nil {
-		logrus.Fatal(err)
+		log.Fatal(err)
 	}
 	// register v1core gvr
 	if err := v1core.AddToScheme(scheme); err != nil {
-		logrus.Fatal(err)
+		log.Fatal(err)
 	}
-	//gv := schema.GroupVersion{Group: "", Version: "v1"}
-
-	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
-	//schemeBuilder := &scheme.Builder{GroupVersion: gv}
-
-	// AddToScheme adds the types in this group-version to the given scheme.
-	//addToScheme = SchemeBuilder.AddToScheme
 
 	kubeconfig := ctrl.GetConfigOrDie()
 	controllerClient, err := client.New(kubeconfig, client.Options{Scheme: scheme})
 	if err != nil {
-		logrus.Fatal(err)
+		log.Fatal(err)
 		return nil
 	}
 	return controllerClient
@@ -74,7 +72,7 @@ func clientset() *kubernetes.Clientset {
 		}
 		return clientset
 	} else if err != nil {
-		logrus.Fatalf("%s failed to check kubeconfig location", err)
+		log.Fatalf("%s failed to check kubeconfig location", err)
 	}
 
 	config, err := clientcmd.BuildConfigFromFlags("", viper.GetString("kubeconfig"))
@@ -90,19 +88,19 @@ func clientset() *kubernetes.Clientset {
 
 func GetCnvrgApps() *mlopsv1.CnvrgAppList {
 	l := mlopsv1.CnvrgAppList{}
-	logrus.Info("fetching all cnvrgapps")
+	log.Info("fetching all cnvrgapps")
 	if err := k8sClient.List(context.Background(), &l); err != nil {
-		logrus.Error("failed to list CnvrgApps err: %v,", err)
+		log.Error("failed to list CnvrgApps err: %v,", err)
 	}
 	return &l
 }
 
-func GetPgCredsData(name types.NamespacedName) *v1core.Secret {
+func GetSecret(name types.NamespacedName) *v1core.Secret {
 
 	secret := v1core.Secret{}
-	logrus.Info("fetching pg secret")
+	log.Infof("fetching %s secret", name)
 	if err := k8sClient.Get(context.Background(), name, &secret); err != nil {
-		logrus.Errorf("error fetching pg scert, err: %s", err)
+		log.Errorf("error fetching pg scert, err: %s", err)
 	}
 	return &secret
 }

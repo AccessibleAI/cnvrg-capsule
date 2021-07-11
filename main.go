@@ -36,6 +36,7 @@ var (
 		{name: "auto-discovery", shorthand: "", value: true, usage: "automatically detect pg creds based on K8s secret"},
 		{name: "ns-whitelist", shorthand: "", value: "*", usage: "when auto-discovery is true, specify the namespaces list, by default lookup in all namespaces"},
 		{name: "kubeconfig", shorthand: "", value: k8s.KubeconfigDefaultLocation(), usage: "absolute path to the kubeconfig file"},
+		{name: "pg-backup-queue-depth", shorthand: "", value: 100, usage: "queue depth for PostgreSQL backups"},
 	}
 	startCapsuleParams = []param{
 		{name: "api-bind-addr", shorthand: "", value: ":8080", usage: "The address to bind to the api service."},
