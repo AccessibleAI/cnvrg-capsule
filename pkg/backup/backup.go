@@ -122,12 +122,9 @@ func NewPgBackup(idPrefix string, bucket BackupBucket, creds PgCreds) *PgBackup 
 	backupId := fmt.Sprintf("%s-%s", idPrefix, shortuuid.New())
 	backupTime := time.Now()
 	backupCmd := []string{
-		fmt.Sprintf("PGPASSWORD=%s", creds.Pass),
 		"pg_dump",
-		"-h", creds.Host,
-		"-U", creds.User,
-		"-d", creds.DbName,
-		"-f", fmt.Sprintf("%s.tar", backupId),
+		fmt.Sprintf("--dbname=postgresql://%s:%s@%s:5432/%s", creds.User, creds.Pass, creds.Host, creds.DbName),
+		"--file=cnvrg-app-cnvrg-QEP3bkBooAFTuH8sEQQusn.tar",
 		"--format=t",
 		"--verbose",
 	}
@@ -163,6 +160,7 @@ func RunPgBackups(pgBackupsChan <-chan *PgBackup) {
 
 	for backup := range pgBackupsChan {
 		log.Infof("received new backup request:  %s", backup.BackupId)
+		backup.backup()
 	}
 }
 
@@ -254,8 +252,8 @@ func validatePgCreds(secretName string, data map[string][]byte) error {
 	return nil
 }
 
-func (b *PgBackup) jsonify() (string, error) {
-	jsonStr, err := json.Marshal(b)
+func (pb *PgBackup) jsonify() (string, error) {
+	jsonStr, err := json.Marshal(pb)
 	if err != nil {
 		log.Errorf("can't marshal struct, err: %v", err)
 		return "", nil
@@ -286,24 +284,37 @@ func (bb *BackupBucket) getMinioClient() *minio.Client {
 }
 
 func (pb *PgBackup) backup() {
+	cmdParams := append([]string{"-lc"}, strings.Join(pb.BackupCmd, " "))
+	log.Debugf("pg backup cmd: %s ", cmdParams)
+	cmd := exec.Command("/bin/bash", cmdParams...)
 
-	cmd := exec.Command("/bin/bash", append([]string{"lc"}, pb.BackupCmd...)...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Error(err)
 	}
-	err = cmd.Start()
-	fmt.Println("The command is running")
+
+	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		log.Error(err)
 	}
 
-	// print the output of the subprocess
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		m := scanner.Text()
+	err = cmd.Start()
+	if err != nil {
+		log.Error(err)
+	}
+
+	stdoutScanner := bufio.NewScanner(stdout)
+	for stdoutScanner.Scan() {
+		m := stdoutScanner.Text()
 		log.Info(m)
 	}
+
+	stderrScanner := bufio.NewScanner(stderr)
+	for stderrScanner.Scan() {
+		m := stderrScanner.Text()
+		log.Error(m)
+	}
+
 	if err := cmd.Wait(); err != nil {
 		log.Error(err)
 	}
