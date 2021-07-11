@@ -122,9 +122,10 @@ func NewPgBackup(idPrefix string, bucket BackupBucket, creds PgCreds) *PgBackup 
 	backupId := fmt.Sprintf("%s-%s", idPrefix, shortuuid.New())
 	backupTime := time.Now()
 	backupCmd := []string{
+		"2>&1", // for some reason pg_dump with verbose mode outputs to stderr (wtf?)
 		"pg_dump",
 		fmt.Sprintf("--dbname=postgresql://%s:%s@%s:5432/%s", creds.User, creds.Pass, creds.Host, creds.DbName),
-		"--file=cnvrg-app-cnvrg-QEP3bkBooAFTuH8sEQQusn.tar",
+		fmt.Sprintf("--file=/tmp/%s.tar", backupId),
 		"--format=t",
 		"--verbose",
 	}
