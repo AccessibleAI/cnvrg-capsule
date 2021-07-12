@@ -33,6 +33,7 @@ var (
 	BuildVersion string
 	rootParams   = []param{
 		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
+		{name: "dumpdir", shorthand: "", value: "/tmp", usage: "place to download DB dumps before uploading to s3 bucket"},
 		{name: "auto-discovery", shorthand: "", value: true, usage: "automatically detect pg creds based on K8s secret"},
 		{name: "ns-whitelist", shorthand: "", value: "*", usage: "when auto-discovery is true, specify the namespaces list, by default lookup in all namespaces"},
 		{name: "kubeconfig", shorthand: "", value: k8s.KubeconfigDefaultLocation(), usage: "absolute path to the kubeconfig file"},

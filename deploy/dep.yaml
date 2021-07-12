@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: capsule
+  namespace: cnvrg
+  labels:
+    app: capsule
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: capsule
+  template:
+    metadata:
+      labels:
+        app: capsule
+    spec:
+      serviceAccountName: cnvrg-operator
+      containers:
+        - name: capsule
+          command:
+            - /bin/bash
+            - -lc
+            - sleep inf
+          env:
+            - name: CNVRG_CAPSULE_DUMPDIR
+              value: /capsule-data
+          image: docker.io/cnvrg/cnvrg-capsule:v0.2
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /capsule-data
+              name: capsule-data
+      volumes:
+        - name: capsule-data
+          persistentVolumeClaim:
+            claimName: capsule
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: capsule
+  namespace: cnvrg
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
