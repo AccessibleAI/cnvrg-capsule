@@ -51,13 +51,13 @@ type PgBackup struct {
 }
 
 const (
-	Initializing Status = "initializing"
+	Initialized  Status = "initialized"
 	DumpingDB    Status = "dumpingdb"
 	UploadingDB  Status = "uploadingdb"
 	Failed       Status = "failed"
 	Finished     Status = "finished"
-	IndexfileTag     string = "backupIndex"
-	PgDbDumpTag  string = "pgDumpFile"
+	IndexfileTag string = "Indexfile"
+	PgDbDumpTag  string = "PgDumpFile"
 )
 
 func NewBackupBucket(endpoint, region, accessKey, secretKey, bucket, dstDir string) *Bucket {
@@ -123,7 +123,7 @@ func NewPgCredsWithAutoDiscovery(credsRef, ns string) (*PgCreds, error) {
 func NewPgBackup(idPrefix string, period int, rotation int, bucket Bucket, creds PgCreds) *PgBackup {
 	backupId := fmt.Sprintf("%s-%s", idPrefix, shortuuid.New())
 	backupTime := time.Now()
-	localDumpPath := fmt.Sprintf("/%s/%s.tar", viper.GetString("dumpdir"), backupId)
+	localDumpPath := fmt.Sprintf("%s/%s.tar", viper.GetString("dumpdir"), backupId)
 	backupCmd := []string{
 		"2>&1", // for some reason pg_dump with verbose mode outputs to stderr (wtf?)
 		"pg_dump",
@@ -136,7 +136,7 @@ func NewPgBackup(idPrefix string, period int, rotation int, bucket Bucket, creds
 		BackupId:       backupId,
 		Bucket:         bucket,
 		PgCreds:        creds,
-		Status:         Initializing,
+		Status:         Initialized,
 		BackupDate:     backupTime,
 		Done:           false,
 		BackupCmd:      backupCmd,
@@ -146,6 +146,5 @@ func NewPgBackup(idPrefix string, period int, rotation int, bucket Bucket, creds
 		Rotation:       rotation,
 	}
 	log.Debugf("new PG Backup initiated: %#v", b)
-	log.Infof("new PG backup initiated: %s", b.BackupId)
 	return b
 }

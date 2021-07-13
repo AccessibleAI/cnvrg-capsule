@@ -2,6 +2,7 @@ package backup
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -54,7 +56,6 @@ func WatchBackupRequest() {
 }
 
 func discoverPgBackups() {
-
 	// if auto-discovery is true
 	if viper.GetBool("auto-discovery") {
 		for {
@@ -85,9 +86,8 @@ func discoverPgBackups() {
 					log.Errorf("error creating backup request, err: %s", err)
 				}
 			}
-			time.Sleep(10 * time.Second)
+			time.Sleep(2 * time.Second)
 		}
-
 	}
 }
 
@@ -95,11 +95,11 @@ func shouldBackup(app mlopsv1.CnvrgApp) bool {
 	nsWhitelist := viper.GetString("ns-whitelist")
 	if *app.Spec.Dbs.Pg.Backup.Enabled {
 		if nsWhitelist == "*" || strings.Contains(nsWhitelist, app.Namespace) {
-			log.Infof("backup required for: %s/%s", app.Namespace, app.Name)
+			log.Infof("backup enabled for: %s/%s", app.Namespace, app.Name)
 			return true
 		}
 	} else {
-		log.Info("skipping, backup is not required for: %s/%s", app.Namespace, app.Name)
+		log.Info("skipping, backup is not enabled (or whitelisted) for: %s/%s", app.Namespace, app.Name)
 		return false
 	}
 	return false
@@ -262,6 +262,11 @@ func (pb *PgBackup) createBackupRequest() error {
 		return err
 	}
 
+	if !pb.ensureBackupRequestIsNeeded() {
+		log.Infof("backup %s is not needed, skipping", pb.BackupId)
+		return nil
+	}
+
 	jsonStr, err := pb.jsonify()
 	if err != nil {
 		return err
@@ -269,11 +274,11 @@ func (pb *PgBackup) createBackupRequest() error {
 	f := strings.NewReader(jsonStr)
 
 	objectName := fmt.Sprintf("%s/%s.json", pb.RemoteDumpPath, pb.BackupId)
-	userTags := map[string]string{IndexfileTag: "true", "foo": "bar"}
+	userTags := map[string]string{IndexfileTag: "true"}
 	po := minio.PutObjectOptions{ContentType: "application/octet-stream", UserMetadata: userTags}
 	_, err = pb.Bucket.getMinioClient().PutObject(context.Background(), pb.Bucket.Bucket, objectName, f, f.Size(), po)
 	if err != nil {
-		log.Errorf("error during putting objcet: %s to S3, err: %s", objectName, err)
+		log.Errorf("error saving object: %s to S3, err: %s", objectName, err)
 		return err
 	}
 	log.Infof("successfully uploaded: %v", objectName)
@@ -287,12 +292,37 @@ func (pb *PgBackup) ensureBackupBucketExists() (exists bool, err error) {
 		log.Errorf("can't check if %s exists, err: %s", backupBucket, err)
 	}
 	if exists {
-		log.Infof("backup bucket %s exists", backupBucket)
+		log.Debugf("backup bucket %s exists", backupBucket)
 	} else {
 		log.Errorf("backup bucket %s does not exists", backupBucket)
 		return false, &BucketDoesNotExists{BucketName: backupBucket, Message: "bucket does not exists"}
 	}
 	return
+}
+
+func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
+	pgBackups := pb.Bucket.scanBucket()
+	// backup is needed if backups list is empty
+	if len(pgBackups) == 0 {
+		log.Info("no backups has been done so far, backup is required")
+		return true
+	}
+
+	// make sure if period for the next backup has been reached
+	diff := time.Now().Sub(pgBackups[0].BackupDate).Minutes()
+	if int(diff) < pgBackups[0].Period {
+		log.Info("latest backup not reached expiration period, backup is not required")
+		return false
+	}
+
+	// period has been expired, make sure max rotation didn't reached
+	if len(pgBackups) <= pb.Rotation {
+		log.Info("latest backup is old enough and max rotation didn't reached yet, backup is required")
+		return true
+	}
+
+	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucket: %s, cleanup backups manually, and ask Dima wtf?", pb.Bucket.Id)
+	return false
 }
 
 func discoverCnvrgAppBackupBucketConfiguration(bb chan<- *Bucket) {
@@ -324,18 +354,42 @@ func scanBucketForBackupRequests(bb <-chan *Bucket) {
 	}
 }
 
-func (b *Bucket) scanBucket() {
+func (b *Bucket) scanBucket() []*PgBackup {
+	var pgBackups []*PgBackup
 	lo := minio.ListObjectsOptions{Prefix: b.DstDir, Recursive: true, WithMetadata: true}
 	objectCh := b.getMinioClient().ListObjects(context.Background(), b.Bucket, lo)
 	for object := range objectCh {
 		if object.Err != nil {
 			log.Errorf("error listing backups in: %s , err: %s ", b.Id, object.Err)
-			return
+			return nil
 		}
-		log.Info(object.UserMetadata)
-		log.Info(object.Metadata)
-		log.Info(object.Key)
+		indexfileMetadataKey := fmt.Sprintf("X-Amz-Meta-%s", IndexfileTag)
+		if _, ok := object.UserMetadata[indexfileMetadataKey]; ok {
+			mc := b.getMinioClient()
+			stream, err := mc.GetObject(context.Background(), b.Bucket, object.Key, minio.GetObjectOptions{})
+			if err != nil {
+				log.Errorf("can't get object: %s, err: %s", object.Key, err)
+				continue
+			}
+			buf := new(bytes.Buffer)
+			if _, err := buf.ReadFrom(stream); err != nil {
+				log.Errorf("error reading stream, object: %s, err: %s", object.Key, err)
+				continue
+			}
+			pgBackup := PgBackup{}
+			if err := json.Unmarshal(buf.Bytes(), &pgBackup); err != nil {
+				log.Errorf("error unmarshal PgBackup request, object: %s, err: %s", object.Key, err)
+				continue
+			}
+			pgBackups = append(pgBackups, &pgBackup)
+		}
 	}
+	sort.Slice(pgBackups, func(i, j int) bool { return pgBackups[i].BackupDate.After(pgBackups[j].BackupDate) })
+	return pgBackups
+}
+
+func (b *Bucket) getPgBackups() {
+
 }
 
 //

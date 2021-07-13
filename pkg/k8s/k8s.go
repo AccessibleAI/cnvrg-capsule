@@ -88,7 +88,7 @@ func clientset() *kubernetes.Clientset {
 
 func GetCnvrgApps() *mlopsv1.CnvrgAppList {
 	l := mlopsv1.CnvrgAppList{}
-	log.Info("fetching all cnvrgapps")
+	log.Debug("fetching all cnvrgapps")
 	if err := k8sClient.List(context.Background(), &l); err != nil {
 		log.Error("failed to list CnvrgApps err: %v,", err)
 	}
