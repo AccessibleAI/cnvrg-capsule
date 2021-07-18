@@ -19,8 +19,6 @@ spec:
       containers:
         - name: capsule
           command:
-            - /bin/bash
-            - -lc
             - ./capsule
             - start
           env:

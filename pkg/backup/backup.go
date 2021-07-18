@@ -313,13 +313,13 @@ func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
 		return false
 	}
 
-	// period has been expired, make sure max rotation didn't reached
-	if len(pgBackups) < pb.Rotation+1 {
+	// period has been expired, make sure max rotation + 1  didn't reached
+	if len(pgBackups) <= pb.Rotation {
 		log.Info("latest backup is old enough and max rotation didn't reached yet, backup is required")
 		return true
 	}
 
-	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucket: %s, cleanup backups manually, and ask Dima wtf?", pb.Bucket.Id)
+	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucketId: %s, cleanup backups manually, and ask Dima wtf?", pb.Bucket.Id)
 	return false
 }
 
@@ -423,17 +423,20 @@ func (b *Bucket) ScanBucket() []*PgBackup {
 func (b *Bucket) rotateBackups() {
 	backups := b.ScanBucket()
 	backupCount := len(backups)
+
 	// nothing to rotate when no backups exists
 	if backupCount == 0 {
 		log.Infof("in bucket: %s, pg backups list is 0, skipping rotation", b.Id)
 		return
 	}
+
 	// rotation not needed yet
 	if backupCount < backups[0].Rotation {
 		log.Infof("in bucket: %s, max rotation not reached yet (current: %d), skipping rotation", b.Id, backupCount)
 		return
 	}
 	log.Infof("in bucket: %s, max rotation has been reached, rotating...", b.Id)
+
 	// remove the oldest backup
 	backups[backupCount-1].remove()
 }
@@ -470,6 +473,7 @@ func discoverCnvrgAppBackupBucketConfiguration(bc chan<- *Bucket) {
 
 func scanBucketForBackupRequests(bb <-chan *Bucket) {
 	for bucket := range bb {
+		bucket.rotateBackups()
 		for _, pgBackup := range bucket.ScanBucket() {
 			go pgBackup.backup()
 		}

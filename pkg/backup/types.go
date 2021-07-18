@@ -50,12 +50,13 @@ type PgBackup struct {
 }
 
 const (
-	Initialized  Status = "initialized"
-	DumpingDB    Status = "dumpingdb"
-	UploadingDB  Status = "uploadingdb"
-	Failed       Status = "failed"
-	Finished     Status = "finished"
-	IndexfileTag string = "Indexfile"
+	Initialized       Status = "initialized"
+	DumpingDB         Status = "dumpingdb"
+	UploadingDB       Status = "uploadingdb"
+	Failed            Status = "failed"
+	Finished          Status = "finished"
+	MarkedForRotation Status = "markedforrotation"
+	IndexfileTag      string = "Indexfile"
 )
 
 func NewBackupBucket(endpoint, region, accessKey, secretKey, bucket, dstDir string) *Bucket {
