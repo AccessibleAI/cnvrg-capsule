@@ -41,7 +41,6 @@ type PgBackup struct {
 	Bucket         Bucket    `json:"backupBucket"`
 	Status         Status    `json:"status"`
 	BackupDate     time.Time `json:"backupDate"`
-	Done           bool      `json:"done"`
 	PgCreds        PgCreds   `json:"pgCreds,omitempty"`
 	LocalDumpPath  string    `json:"localDumpPath"`
 	RemoteDumpPath string    `json:"remoteDumpPath"`
@@ -57,7 +56,6 @@ const (
 	Failed       Status = "failed"
 	Finished     Status = "finished"
 	IndexfileTag string = "Indexfile"
-	PgDbDumpTag  string = "PgDumpFile"
 )
 
 func NewBackupBucket(endpoint, region, accessKey, secretKey, bucket, dstDir string) *Bucket {
@@ -138,7 +136,6 @@ func NewPgBackup(idPrefix string, period int, rotation int, bucket Bucket, creds
 		PgCreds:        creds,
 		Status:         Initialized,
 		BackupDate:     backupTime,
-		Done:           false,
 		BackupCmd:      backupCmd,
 		LocalDumpPath:  localDumpPath,
 		RemoteDumpPath: fmt.Sprintf("%s/%s-pg", bucket.DstDir, backupId),

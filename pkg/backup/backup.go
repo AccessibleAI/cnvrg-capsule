@@ -131,7 +131,7 @@ func validatePgCreds(secretName string, data map[string][]byte) error {
 	return nil
 }
 
-func (pb *PgBackup) jsonify() (string, error) {
+func (pb *PgBackup) Jsonify() (string, error) {
 	jsonStr, err := json.Marshal(pb)
 	if err != nil {
 		log.Errorf("can't marshal struct, err: %v", err)
@@ -254,6 +254,13 @@ func (pb *PgBackup) backup() error {
 
 		return err
 	}
+
+	// finish backup
+	pb.Status = Finished
+	if err := pb.syncBackupState(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -292,7 +299,7 @@ func (pb *PgBackup) ensureBackupBucketExists() (exists bool, err error) {
 }
 
 func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
-	pgBackups := pb.Bucket.scanBucket()
+	pgBackups := pb.Bucket.ScanBucket()
 	// backup is needed if backups list is empty
 	if len(pgBackups) == 0 {
 		log.Info("no backups has been done so far, backup is required")
@@ -317,7 +324,7 @@ func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
 }
 
 func (pb *PgBackup) syncBackupState() error {
-	jsonStr, err := pb.jsonify()
+	jsonStr, err := pb.Jsonify()
 	if err != nil {
 		return err
 	}
@@ -379,7 +386,7 @@ func (b *Bucket) getMinioClient() *minio.Client {
 	return mc
 }
 
-func (b *Bucket) scanBucket() []*PgBackup {
+func (b *Bucket) ScanBucket() []*PgBackup {
 	var pgBackups []*PgBackup
 	lo := minio.ListObjectsOptions{Prefix: b.DstDir, Recursive: true, WithMetadata: true}
 	objectCh := b.getMinioClient().ListObjects(context.Background(), b.Bucket, lo)
@@ -414,7 +421,7 @@ func (b *Bucket) scanBucket() []*PgBackup {
 }
 
 func (b *Bucket) rotateBackups() {
-	backups := b.scanBucket()
+	backups := b.ScanBucket()
 	backupCount := len(backups)
 	// nothing to rotate when no backups exists
 	if backupCount == 0 {
@@ -431,23 +438,30 @@ func (b *Bucket) rotateBackups() {
 	backups[backupCount-1].remove()
 }
 
-func discoverCnvrgAppBackupBucketConfiguration(bb chan<- *Bucket) {
+func GetBackupBuckets() (bucket []*Bucket) {
+	apps := k8s.GetCnvrgApps()
+	for _, app := range apps.Items {
+		// make sure backups enabled
+		if !shouldBackup(app) {
+			continue // backup not required, either backup disabled or the ns is blocked for backups
+		}
+		// discover destination bucket
+		b, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+		if err != nil {
+			log.Errorf("error discovering backup bucket, err: %s", err)
+			continue
+		}
+		bucket = append(bucket, b)
+	}
+	return bucket
+}
+
+func discoverCnvrgAppBackupBucketConfiguration(bc chan<- *Bucket) {
 
 	if viper.GetBool("auto-discovery") { // auto-discovery is true
 		for {
-			// get all cnvrg apps
-			apps := k8s.GetCnvrgApps()
-			for _, app := range apps.Items {
-				// make sure backups enabled
-				if !shouldBackup(app) {
-					continue // backup not required, either backup disabled or the ns is blocked for backups
-				}
-				// discover destination bucket
-				bucket, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
-				if err != nil {
-					return
-				}
-				bb <- bucket
+			for _, b := range GetBackupBuckets() {
+				bc <- b
 			}
 			time.Sleep(10 * time.Second)
 		}
@@ -456,7 +470,7 @@ func discoverCnvrgAppBackupBucketConfiguration(bb chan<- *Bucket) {
 
 func scanBucketForBackupRequests(bb <-chan *Bucket) {
 	for bucket := range bb {
-		for _, pgBackup := range bucket.scanBucket() {
+		for _, pgBackup := range bucket.ScanBucket() {
 			go pgBackup.backup()
 		}
 	}
