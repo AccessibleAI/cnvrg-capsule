@@ -160,8 +160,7 @@ func (pb *PgBackup) uploadDbDump() error {
 		return err
 	}
 	mc := pb.Bucket.getMinioClient()
-	object := fmt.Sprintf("%s/%s.tar", pb.RemoteDumpPath, pb.BackupId)
-	uploadInfo, err := mc.PutObject(context.Background(), pb.Bucket.Bucket, object, file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
+	uploadInfo, err := mc.PutObject(context.Background(), pb.Bucket.Bucket, pb.getDbDumpFileName(), file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
 	if err != nil {
 		log.Error(err)
 		return err
@@ -313,7 +312,7 @@ func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
 		return false
 	}
 
-	// period has been expired, make sure max rotation + 1  didn't reached
+	// period has been expired, make sure max rotation didn't reached
 	if len(pgBackups) <= pb.Rotation {
 		log.Info("latest backup is old enough and max rotation didn't reached yet, backup is required")
 		return true
@@ -329,17 +328,24 @@ func (pb *PgBackup) syncBackupState() error {
 		return err
 	}
 	f := strings.NewReader(jsonStr)
-	objectName := fmt.Sprintf("%s/%s.json", pb.RemoteDumpPath, pb.BackupId)
 	userTags := map[string]string{IndexfileTag: "true"}
 	po := minio.PutObjectOptions{ContentType: "application/octet-stream", UserMetadata: userTags}
-	_, err = pb.Bucket.getMinioClient().PutObject(context.Background(), pb.Bucket.Bucket, objectName, f, f.Size(), po)
+	_, err = pb.Bucket.getMinioClient().PutObject(context.Background(), pb.Bucket.Bucket, pb.getBackupIndexFileName(), f, f.Size(), po)
 	if err != nil {
-		log.Errorf("error saving object: %s to S3, err: %s", objectName, err)
+		log.Errorf("error saving object: %s to S3, err: %s", pb.getBackupIndexFileName(), err)
 		return err
 	}
-	log.Infof("backup state synchronized: %v", objectName)
+	log.Infof("backup state synchronized: %v", pb.getBackupIndexFileName())
 	return nil
 
+}
+
+func (pb *PgBackup) getBackupIndexFileName() string {
+	return fmt.Sprintf("%s/%s.json", pb.RemoteDumpPath, pb.BackupId)
+}
+
+func (pb *PgBackup) getDbDumpFileName() string {
+	return fmt.Sprintf("%s/%s.tar", pb.RemoteDumpPath, pb.BackupId)
 }
 
 func (pb *PgBackup) active() bool {
@@ -369,7 +375,11 @@ func (pb *PgBackup) deactivate() {
 func (pb *PgBackup) remove() {
 	mc := pb.Bucket.getMinioClient()
 	opts := minio.RemoveObjectOptions{GovernanceBypass: true}
-	err := mc.RemoveObject(context.Background(), pb.Bucket.Bucket, pb.RemoteDumpPath, opts)
+	err := mc.RemoveObject(context.Background(), pb.Bucket.Bucket, pb.getBackupIndexFileName(), opts)
+	if err != nil {
+		log.Error(err)
+	}
+	err = mc.RemoveObject(context.Background(), pb.Bucket.Bucket, pb.getDbDumpFileName(), opts)
 	if err != nil {
 		log.Error(err)
 	}
