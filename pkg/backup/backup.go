@@ -34,10 +34,6 @@ func Run() {
 	go scanBucketForBackupRequests(BucketsToWatchChan)
 }
 
-func WatchBackupRequest() {
-
-}
-
 func discoverPgBackups() {
 	// if auto-discovery is true
 	if viper.GetBool("auto-discovery") {
@@ -144,18 +140,6 @@ func (pb *PgBackup) jsonify() (string, error) {
 	return string(jsonStr), nil
 }
 
-//
-//func ValidateBackupType(backupType BackupType) bool {
-//	if backupType == PostgreSQL {
-//		return true
-//	}
-//	if backupType == Redis {
-//		return true
-//	}
-//	return false
-//}
-//
-
 func (pb *PgBackup) uploadDbDump() error {
 	exists, err := pb.ensureBackupBucketExists()
 	if err != nil || !exists {
@@ -176,8 +160,8 @@ func (pb *PgBackup) uploadDbDump() error {
 		return err
 	}
 	mc := pb.Bucket.getMinioClient()
-
-	uploadInfo, err := mc.PutObject(context.Background(), pb.Bucket.Bucket, pb.RemoteDumpPath, file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
+	object := fmt.Sprintf("%s/%s.tar", pb.RemoteDumpPath, pb.BackupId)
+	uploadInfo, err := mc.PutObject(context.Background(), pb.Bucket.Bucket, object, file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
 	if err != nil {
 		log.Error(err)
 		return err
@@ -240,27 +224,26 @@ func (pb *PgBackup) backup() error {
 		log.Infof("backup: %s status is finished, skipping backup", pb.BackupId)
 		return nil
 	}
-
 	// check if current backups is not active in another backup go routine
 	if pb.active() {
 		log.Infof("backup %s is active, skipping", pb.BackupId)
 		return nil
 	}
-
 	// activate backup in runtime - so other go routine won't initiate a backup process again
 	pb.activate()
-
+	// deactivate backup
+	defer pb.deactivate()
+	// dump db
 	pb.Status = DumpingDB
 	if err := pb.syncBackupState(); err != nil {
 		return err
 	}
-
 	if err := pb.dumpDb(); err != nil {
 		pb.Status = Failed
 		pb.syncBackupState()
 		return err
 	}
-
+	// upload db dump to s3
 	pb.Status = UploadingDB
 	if err := pb.syncBackupState(); err != nil {
 		return err
@@ -268,12 +251,9 @@ func (pb *PgBackup) backup() error {
 	if err := pb.uploadDbDump(); err != nil {
 		pb.Status = Failed
 		pb.syncBackupState()
+
 		return err
 	}
-
-	// deactivate backup
-	pb.deactivate()
-
 	return nil
 }
 
@@ -327,7 +307,7 @@ func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
 	}
 
 	// period has been expired, make sure max rotation didn't reached
-	if len(pgBackups) <= pb.Rotation {
+	if len(pgBackups) < pb.Rotation+1 {
 		log.Info("latest backup is old enough and max rotation didn't reached yet, backup is required")
 		return true
 	}
@@ -350,7 +330,7 @@ func (pb *PgBackup) syncBackupState() error {
 		log.Errorf("error saving object: %s to S3, err: %s", objectName, err)
 		return err
 	}
-	log.Infof("backup stated synchronized: %v", objectName)
+	log.Infof("backup state synchronized: %v", objectName)
 	return nil
 
 }
@@ -377,6 +357,16 @@ func (pb *PgBackup) deactivate() {
 	}
 	mutex.Unlock()
 	log.Infof("backup: %s has been deactivated", pb.BackupId)
+}
+
+func (pb *PgBackup) remove() {
+	mc := pb.Bucket.getMinioClient()
+	opts := minio.RemoveObjectOptions{GovernanceBypass: true}
+	err := mc.RemoveObject(context.Background(), pb.Bucket.Bucket, pb.RemoteDumpPath, opts)
+	if err != nil {
+		log.Error(err)
+	}
+	log.Infof("backup dir: %s has been removed", pb.RemoteDumpPath)
 }
 
 func (b *Bucket) getMinioClient() *minio.Client {
@@ -423,8 +413,22 @@ func (b *Bucket) scanBucket() []*PgBackup {
 	return pgBackups
 }
 
-func (b *Bucket) getPgBackups() {
-
+func (b *Bucket) rotateBackups() {
+	backups := b.scanBucket()
+	backupCount := len(backups)
+	// nothing to rotate when no backups exists
+	if backupCount == 0 {
+		log.Infof("in bucket: %s, pg backups list is 0, skipping rotation", b.Id)
+		return
+	}
+	// rotation not needed yet
+	if backupCount < backups[0].Rotation {
+		log.Infof("in bucket: %s, max rotation not reached yet (current: %d), skipping rotation", b.Id, backupCount)
+		return
+	}
+	log.Infof("in bucket: %s, max rotation has been reached, rotating...", b.Id)
+	// remove the oldest backup
+	backups[backupCount-1].remove()
 }
 
 func discoverCnvrgAppBackupBucketConfiguration(bb chan<- *Bucket) {
