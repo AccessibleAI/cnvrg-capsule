@@ -441,7 +441,7 @@ func (b *Bucket) rotateBackups() {
 	}
 
 	// rotation not needed yet
-	if backupCount < backups[0].Rotation {
+	if backupCount <= backups[0].Rotation {
 		log.Infof("in bucket: %s, max rotation not reached yet (current: %d), skipping rotation", b.Id, backupCount)
 		return
 	}
