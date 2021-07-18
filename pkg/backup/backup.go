@@ -16,12 +16,15 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 var (
 	log                = logrus.WithField("module", "backup-engine")
+	mutex              = sync.Mutex{}
 	BucketsToWatchChan = make(chan *Bucket, viper.GetInt("pg-backup-queue-depth"))
+	activeBackups      = map[string]bool{}
 )
 
 func Run() {
@@ -29,26 +32,6 @@ func Run() {
 	go discoverPgBackups()
 	go discoverCnvrgAppBackupBucketConfiguration(BucketsToWatchChan)
 	go scanBucketForBackupRequests(BucketsToWatchChan)
-
-	//pgBackupsChan := make(chan *PgBackup, viper.GetInt("pg-backup-queue-depth"))
-	//go RunDiscovery(pgBackupsChan)
-	//go RunPgBackups(pgBackupsChan)
-}
-
-func RunDiscovery(pgBackupsChan chan<- *PgBackup) {
-
-	stopChan := make(chan bool)
-	go discoverPgBackups()
-	<-stopChan
-}
-
-func RunPgBackups(pgBackupsChan <-chan *PgBackup) {
-
-	for backup := range pgBackupsChan {
-		log.Infof("received new backup request:  %s", backup.BackupId)
-		backup.dumpDb()
-		backup.uploadDbDump()
-	}
 }
 
 func WatchBackupRequest() {
@@ -86,7 +69,7 @@ func discoverPgBackups() {
 					log.Errorf("error creating backup request, err: %s", err)
 				}
 			}
-			time.Sleep(2 * time.Second)
+			time.Sleep(60 * time.Second)
 		}
 	}
 }
@@ -173,47 +156,38 @@ func (pb *PgBackup) jsonify() (string, error) {
 //}
 //
 
-func (b *Bucket) getMinioClient() *minio.Client {
-
-	connOptions := &minio.Options{Creds: credentials.NewStaticV4(b.AccessKey, b.SecretKey, ""), Secure: b.UseSSL}
-	mc, err := minio.New(b.Endpoint, connOptions)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return mc
-}
-
-func (pb *PgBackup) uploadDbDump() {
+func (pb *PgBackup) uploadDbDump() error {
 	exists, err := pb.ensureBackupBucketExists()
 	if err != nil || !exists {
 		log.Errorf("can't upload DB dump: %s, error during checking if bucket exists", pb.BackupId)
-		return
+		return err
 	}
 
 	file, err := os.Open(pb.LocalDumpPath)
 	if err != nil {
 		log.Errorf("can't open dump file: %s, err: %s", pb.BackupId, err)
-		return
+		return err
 	}
 	defer file.Close()
 
 	fileStat, err := file.Stat()
 	if err != nil {
 		log.Errorf("can't open dump file: %s, err: %s", pb.BackupId, err)
-		return
+		return err
 	}
 	mc := pb.Bucket.getMinioClient()
 
 	uploadInfo, err := mc.PutObject(context.Background(), pb.Bucket.Bucket, pb.RemoteDumpPath, file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
 	if err != nil {
 		log.Error(err)
-		return
+		return err
 	}
 	log.Infof("successfully uploaded DB dump: %s, size: %d", pb.BackupId, uploadInfo.Size)
-
+	return nil
 }
 
-func (pb *PgBackup) dumpDb() {
+func (pb *PgBackup) dumpDb() error {
+	log.Infof("starting backup: %s", pb.BackupId)
 	cmdParams := append([]string{"-lc"}, strings.Join(pb.BackupCmd, " "))
 	log.Debugf("pg backup cmd: %s ", cmdParams)
 	cmd := exec.Command("/bin/bash", cmdParams...)
@@ -221,36 +195,86 @@ func (pb *PgBackup) dumpDb() {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Error(err)
+		return err
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		log.Error(err)
+		return err
 	}
 
 	err = cmd.Start()
 	if err != nil {
 		log.Error(err)
+		return err
 	}
 
 	stdoutScanner := bufio.NewScanner(stdout)
 	for stdoutScanner.Scan() {
 		m := stdoutScanner.Text()
-		log.Info(m)
+		log.Infof("|%s| %s", pb.BackupId, m)
 	}
 
 	stderrScanner := bufio.NewScanner(stderr)
 	for stderrScanner.Scan() {
 		m := stderrScanner.Text()
-		log.Error(m)
+		log.Errorf("|%s| %s", pb.BackupId, m)
+		return err
 	}
 
 	if err := cmd.Wait(); err != nil {
 		log.Error(err)
+		return err
 	}
 
 	log.Infof("backup %s is finished", pb.BackupId)
+	return nil
 
+}
+
+func (pb *PgBackup) backup() error {
+
+	// if backups status is Finished - all good, backup is ready
+	if pb.Status == Finished {
+		log.Infof("backup: %s status is finished, skipping backup", pb.BackupId)
+		return nil
+	}
+
+	// check if current backups is not active in another backup go routine
+	if pb.active() {
+		log.Infof("backup %s is active, skipping", pb.BackupId)
+		return nil
+	}
+
+	// activate backup in runtime - so other go routine won't initiate a backup process again
+	pb.activate()
+
+	pb.Status = DumpingDB
+	if err := pb.syncBackupState(); err != nil {
+		return err
+	}
+
+	if err := pb.dumpDb(); err != nil {
+		pb.Status = Failed
+		pb.syncBackupState()
+		return err
+	}
+
+	pb.Status = UploadingDB
+	if err := pb.syncBackupState(); err != nil {
+		return err
+	}
+	if err := pb.uploadDbDump(); err != nil {
+		pb.Status = Failed
+		pb.syncBackupState()
+		return err
+	}
+
+	// deactivate backup
+	pb.deactivate()
+
+	return nil
 }
 
 func (pb *PgBackup) createBackupRequest() error {
@@ -267,21 +291,8 @@ func (pb *PgBackup) createBackupRequest() error {
 		return nil
 	}
 
-	jsonStr, err := pb.jsonify()
-	if err != nil {
-		return err
-	}
-	f := strings.NewReader(jsonStr)
+	pb.syncBackupState()
 
-	objectName := fmt.Sprintf("%s/%s.json", pb.RemoteDumpPath, pb.BackupId)
-	userTags := map[string]string{IndexfileTag: "true"}
-	po := minio.PutObjectOptions{ContentType: "application/octet-stream", UserMetadata: userTags}
-	_, err = pb.Bucket.getMinioClient().PutObject(context.Background(), pb.Bucket.Bucket, objectName, f, f.Size(), po)
-	if err != nil {
-		log.Errorf("error saving object: %s to S3, err: %s", objectName, err)
-		return err
-	}
-	log.Infof("successfully uploaded: %v", objectName)
 	return nil
 }
 
@@ -311,7 +322,7 @@ func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
 	// make sure if period for the next backup has been reached
 	diff := time.Now().Sub(pgBackups[0].BackupDate).Minutes()
 	if int(diff) < pgBackups[0].Period {
-		log.Info("latest backup not reached expiration period, backup is not required")
+		log.Infof("latest backup not reached expiration period (left: %dm), backup is not required", pgBackups[0].Period-int(diff))
 		return false
 	}
 
@@ -325,33 +336,57 @@ func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
 	return false
 }
 
-func discoverCnvrgAppBackupBucketConfiguration(bb chan<- *Bucket) {
-
-	if viper.GetBool("auto-discovery") { // auto-discovery is true
-		for {
-			// get all cnvrg apps
-			apps := k8s.GetCnvrgApps()
-			for _, app := range apps.Items {
-				// make sure backups enabled
-				if !shouldBackup(app) {
-					continue // backup not required, either backup disabled or the ns is blocked for backups
-				}
-				// discover destination bucket
-				bucket, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
-				if err != nil {
-					return
-				}
-				bb <- bucket
-			}
-			time.Sleep(5 * time.Second)
-		}
+func (pb *PgBackup) syncBackupState() error {
+	jsonStr, err := pb.jsonify()
+	if err != nil {
+		return err
 	}
+	f := strings.NewReader(jsonStr)
+	objectName := fmt.Sprintf("%s/%s.json", pb.RemoteDumpPath, pb.BackupId)
+	userTags := map[string]string{IndexfileTag: "true"}
+	po := minio.PutObjectOptions{ContentType: "application/octet-stream", UserMetadata: userTags}
+	_, err = pb.Bucket.getMinioClient().PutObject(context.Background(), pb.Bucket.Bucket, objectName, f, f.Size(), po)
+	if err != nil {
+		log.Errorf("error saving object: %s to S3, err: %s", objectName, err)
+		return err
+	}
+	log.Infof("backup stated synchronized: %v", objectName)
+	return nil
+
 }
 
-func scanBucketForBackupRequests(bb <-chan *Bucket) {
-	for bucket := range bb {
-		bucket.scanBucket()
+func (pb *PgBackup) active() bool {
+	mutex.Lock()
+	_, active := activeBackups[pb.BackupId]
+	mutex.Unlock()
+	log.Infof("backup: %s is active: %v", pb.BackupId, active)
+	return active
+}
+
+func (pb *PgBackup) activate() {
+	mutex.Lock()
+	activeBackups[pb.BackupId] = true
+	mutex.Unlock()
+	log.Infof("backup: %s has been activated", pb.BackupId)
+}
+
+func (pb *PgBackup) deactivate() {
+	mutex.Lock()
+	if _, active := activeBackups[pb.BackupId]; active {
+		delete(activeBackups, pb.BackupId)
 	}
+	mutex.Unlock()
+	log.Infof("backup: %s has been deactivated", pb.BackupId)
+}
+
+func (b *Bucket) getMinioClient() *minio.Client {
+
+	connOptions := &minio.Options{Creds: credentials.NewStaticV4(b.AccessKey, b.SecretKey, ""), Secure: b.UseSSL}
+	mc, err := minio.New(b.Endpoint, connOptions)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return mc
 }
 
 func (b *Bucket) scanBucket() []*PgBackup {
@@ -392,7 +427,33 @@ func (b *Bucket) getPgBackups() {
 
 }
 
-//
-//func (pgCreds *PgCreds) autoDiscoverPgCreds() {
-//
-//}
+func discoverCnvrgAppBackupBucketConfiguration(bb chan<- *Bucket) {
+
+	if viper.GetBool("auto-discovery") { // auto-discovery is true
+		for {
+			// get all cnvrg apps
+			apps := k8s.GetCnvrgApps()
+			for _, app := range apps.Items {
+				// make sure backups enabled
+				if !shouldBackup(app) {
+					continue // backup not required, either backup disabled or the ns is blocked for backups
+				}
+				// discover destination bucket
+				bucket, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+				if err != nil {
+					return
+				}
+				bb <- bucket
+			}
+			time.Sleep(10 * time.Second)
+		}
+	}
+}
+
+func scanBucketForBackupRequests(bb <-chan *Bucket) {
+	for bucket := range bb {
+		for _, pgBackup := range bucket.scanBucket() {
+			go pgBackup.backup()
+		}
+	}
+}
