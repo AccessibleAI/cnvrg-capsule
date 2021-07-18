@@ -21,10 +21,13 @@ spec:
           command:
             - /bin/bash
             - -lc
-            - sleep inf
+            - ./capsule
+            - start
           env:
             - name: CNVRG_CAPSULE_DUMPDIR
               value: /capsule-data
+            - name: GIN_MODE
+              value: release
           image: docker.io/cnvrg/cnvrg-capsule:v0.2
           imagePullPolicy: Always
           volumeMounts:
