@@ -36,28 +36,10 @@ var (
 		{name: "auto-discovery", shorthand: "", value: true, usage: "automatically detect pg creds based on K8s secret"},
 		{name: "ns-whitelist", shorthand: "", value: "*", usage: "when auto-discovery is true, specify the namespaces list, by default lookup in all namespaces"},
 		{name: "kubeconfig", shorthand: "", value: k8s.KubeconfigDefaultLocation(), usage: "absolute path to the kubeconfig file"},
-		{name: "pg-backup-queue-depth", shorthand: "", value: 100, usage: "queue depth for PostgreSQL backups"},
 	}
 	startCapsuleParams = []param{
 		{name: "api-bind-addr", shorthand: "", value: ":8080", usage: "The address to bind to the api service."},
 		{name: "mode", shorthand: "", value: "allinone", usage: fmt.Sprintf("%s|%s|%s", AllInOne, Api, BackupEngine)},
-	}
-	cliBackupParams = []param{
-		{name: "endpoint", shorthand: "", value: "", usage: "S3 endpoint"},
-		{name: "access-key", shorthand: "", value: "", usage: "S3 access key"},
-		{name: "secret-key", shorthand: "", value: "", usage: "S3 secret key"},
-		{name: "s3-tls", shorthand: "", value: false, usage: "Use secure S3 connection"},
-		{name: "bucket", shorthand: "", value: "cnvrg-backups", usage: "S3 bucket for backups"},
-		{name: "dst-dir", shorthand: "", value: "cnvrg-backups", usage: "Bucket destination directory"},
-	}
-	cliBackupPgParams = []param{
-		{name: "upload", shorthand: "", value: true, usage: "set to false for skipping uploading db dump to S3"},
-		{name: "local-dir", shorthand: "", value: "/tmp", usage: "local dir for saving the db dumps"},
-		{name: "host", shorthand: "", value: "", usage: "database server host or socket directory, omit if auto-discovery set to true (default)"},
-		{name: "port", shorthand: "", value: 5432, usage: "database server port number"},
-		{name: "dbname", shorthand: "", value: "cnvrg_production", usage: "database to dump"},
-		{name: "user", shorthand: "", value: "", usage: "PG user, omit if auto-discovery set to true (default)"},
-		{name: "pass", shorthand: "", value: "", usage: "PG pass, omit if auto-discovery set to true (default)"},
 	}
 )
 
@@ -94,32 +76,56 @@ var startCapsule = &cobra.Command{
 	},
 }
 
-var cliBackupCapsule = &cobra.Command{
+var cliBackup = &cobra.Command{
 	Use:   "backup",
 	Short: "Run capsule backups from cli",
 	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) == 0 {
+			logrus.Error("wrong parameter provided, must be one of the following: pg")
+			cmd.Help()
+			os.Exit(1)
+		}
+		if args[0] != "pg" {
+			logrus.Errorf("wrong paramter provided: %s, must be one of the following: pg", args[0])
+			cmd.Help()
+			os.Exit(1)
+		}
 		logrus.Info("starting capsule...")
 	},
 }
 
-var cliBackupPgCapsule = &cobra.Command{
+var cliBackupPg = &cobra.Command{
 	Use:   "pg",
 	Short: "Backup PG",
 	Run: func(cmd *cobra.Command, args []string) {
-		stopChan := make(chan bool)
-		logrus.Info("starting capsule...")
-		if viper.GetBool("auto-discovery") {
-			//pgCreds := backup.NewPgCredsWithAutoDiscovery()
-			//fmt.Println(pgCreds)
+		logrus.Info("starting pg backup...")
+		if !viper.GetBool("auto-discovery") {
+			logrus.Fatalf("currently only auto-discover=true is supported")
 		}
-		//b := backup.New(backup.PostgreSQL)
-		//if viper.GetBool("upload") {
-		//	if err := b.CreateBackupRequest(); err != nil {
-		//		logrus.Fatal(err)
-		//	}
-		//}
-
-		<-stopChan
+		apps := k8s.GetCnvrgApps()
+		for _, app := range apps.Items {
+			if !backup.ShouldBackup(app) {
+				continue
+			}
+			// discover pg creds
+			pgCreds, err := backup.NewPgCredsWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.CredsRef, app.Namespace)
+			if err != nil {
+				return
+			}
+			// discover destination bucket
+			bucket, err := backup.NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+			if err != nil {
+				return
+			}
+			// create backup request
+			idPrefix := fmt.Sprintf("%s-%s", app.Name, app.Namespace)
+			period := app.Spec.Dbs.Pg.Backup.Period
+			rotation := app.Spec.Dbs.Pg.Backup.Rotation
+			backup := backup.NewPgBackup(idPrefix, period, rotation, *bucket, *pgCreds)
+			if err := backup.DumpDb(); err != nil {
+				logrus.Fatalf("error dumping DB, err: %s", err)
+			}
+		}
 	},
 }
 
@@ -144,14 +150,14 @@ func setupCommands() {
 	viper.SetEnvPrefix("CNVRG_CAPSULE")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	// Setup commands
-	setParams(rootParams, rootCmd)
+
 	setParams(startCapsuleParams, startCapsule)
-	setParams(cliBackupPgParams, cliBackupPgCapsule)
-	setParams(cliBackupParams, cliBackupCapsule)
-	cliBackupCapsule.AddCommand(cliBackupPgCapsule)
+	setParams(rootParams, rootCmd)
+	cliBackup.AddCommand(cliBackupPg)
 	rootCmd.AddCommand(startCapsule)
 	rootCmd.AddCommand(capsuleVersion)
-	rootCmd.AddCommand(cliBackupCapsule)
+	rootCmd.AddCommand(cliBackup)
+
 }
 
 func setupLogging() {

@@ -23,7 +23,7 @@ import (
 var (
 	log                = logrus.WithField("module", "backup-engine")
 	mutex              = sync.Mutex{}
-	BucketsToWatchChan = make(chan *Bucket, viper.GetInt("pg-backup-queue-depth"))
+	BucketsToWatchChan = make(chan *Bucket, 100)
 	activeBackups      = map[string]bool{}
 )
 
@@ -42,7 +42,7 @@ func discoverPgBackups() {
 			apps := k8s.GetCnvrgApps()
 			for _, app := range apps.Items {
 				// make sure backups enabled
-				if !shouldBackup(app) {
+				if !ShouldBackup(app) {
 					continue // backup not required, either backup disabled or the ns is blocked for backups
 				}
 				// discover pg creds
@@ -70,17 +70,15 @@ func discoverPgBackups() {
 	}
 }
 
-func shouldBackup(app mlopsv1.CnvrgApp) bool {
+func ShouldBackup(app mlopsv1.CnvrgApp) bool {
 	nsWhitelist := viper.GetString("ns-whitelist")
 	if *app.Spec.Dbs.Pg.Backup.Enabled {
 		if nsWhitelist == "*" || strings.Contains(nsWhitelist, app.Namespace) {
 			log.Infof("backup enabled for: %s/%s", app.Namespace, app.Name)
 			return true
 		}
-	} else {
-		log.Infof("skipping, backup is not enabled (or whitelisted) for: %s/%s", app.Namespace, app.Name)
-		return false
 	}
+	log.Warnf("skipping, backup is not enabled (or whitelisted) for: %s/%s", app.Namespace, app.Name)
 	return false
 }
 
@@ -169,7 +167,7 @@ func (pb *PgBackup) uploadDbDump() error {
 	return nil
 }
 
-func (pb *PgBackup) dumpDb() error {
+func (pb *PgBackup) DumpDb() error {
 	log.Infof("starting backup: %s", pb.BackupId)
 	cmdParams := append([]string{"-lc"}, strings.Join(pb.BackupCmd, " "))
 	log.Debugf("pg backup cmd: %s ", cmdParams)
@@ -237,7 +235,7 @@ func (pb *PgBackup) backup() error {
 	if err := pb.syncBackupState(); err != nil {
 		return err
 	}
-	if err := pb.dumpDb(); err != nil {
+	if err := pb.DumpDb(); err != nil {
 		pb.Status = Failed
 		pb.syncBackupState()
 		return err
@@ -455,7 +453,7 @@ func GetBackupBuckets() (bucket []*Bucket) {
 	apps := k8s.GetCnvrgApps()
 	for _, app := range apps.Items {
 		// make sure backups enabled
-		if !shouldBackup(app) {
+		if !ShouldBackup(app) {
 			continue // backup not required, either backup disabled or the ns is blocked for backups
 		}
 		// discover destination bucket
