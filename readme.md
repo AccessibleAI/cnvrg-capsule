@@ -33,4 +33,5 @@ The HTTP API (allowing to list available backups per cnvrg cluster)
 The S3 watcher API (listing, and executing an backups per backup requests) 
 
 Architecture schema: 
+
 ![capsule schema](./docs/schema.png)
