@@ -36,3 +36,14 @@ The interfaces
 Architecture schema: 
 
 ![capsule schema](./docs/schema.png)
+
+
+The backup flow:
+
+Capsule backup engine includes 3 threads 
+* The 1 threads is responsible for discovering and creation for backup requests, 
+* The 2, and 3 is are responsible for executing actual backups 
+
+1. Discover PG backups: this infinite loop, list all the existing `CnvrgApp` each X seconds in the cluster, checking if PG backup has been enabled, and if yes, creating a  backup request (the `backupIndex.json`) file to destination S3 bucket
+2. Discover bucket configuration for backups: this infinite loop, list all the existing `CnvrgApp` objects, extract the destination bucket connection details and send them to `BucketsToWatchChan channel 
+3. Scan bucket for backup requests: this infinite loop, receive a S3 bucket object over the channel, and execute bucket scan for incomplete backup request, and then initiate actual backup process.

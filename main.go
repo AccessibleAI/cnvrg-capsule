@@ -26,7 +26,6 @@ const (
 	AllInOne     RunMode = "allinone"
 	Api          RunMode = "api"
 	BackupEngine RunMode = "backup-engine"
-	Informer     RunMode = "informer"
 )
 
 var (
@@ -41,7 +40,7 @@ var (
 	}
 	startCapsuleParams = []param{
 		{name: "api-bind-addr", shorthand: "", value: ":8080", usage: "The address to bind to the api service."},
-		{name: "mode", shorthand: "", value: "allinone", usage: fmt.Sprintf("%s|%s|%s|%s", AllInOne, Api, BackupEngine, Informer)},
+		{name: "mode", shorthand: "", value: "allinone", usage: fmt.Sprintf("%s|%s|%s", AllInOne, Api, BackupEngine)},
 	}
 	cliBackupParams = []param{
 		{name: "endpoint", shorthand: "", value: "", usage: "S3 endpoint"},
@@ -80,7 +79,7 @@ var capsuleVersion = &cobra.Command{
 
 var startCapsule = &cobra.Command{
 	Use:   "start",
-	Short: fmt.Sprintf("Start the capsule backup service (by default mode=allinone, supported modes: %s|%s|%s|%s)", AllInOne, Api, BackupEngine, Informer),
+	Short: fmt.Sprintf("Start the capsule backup service (by default mode=allinone, supported modes: %s|%s|%s)", AllInOne, Api, BackupEngine),
 	Run: func(cmd *cobra.Command, args []string) {
 		stopChan := make(chan bool)
 		runMode := RunMode(viper.GetString("mode"))
