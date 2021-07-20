@@ -25,12 +25,13 @@ These two concepts (S3 bucket and `backupIndex.json`) make cnvrg capsule backups
 
 
 ### Cnvrg Capsule - architecture 
-Capsule has been designed as a stand alone tool, but it provides 3 interfaces for backup management. The backup management includes operations like automatic backup discovery, configuration of rotation and period, etc. Probably the most efficient way to use a capsule is in conjunction with `cnvrg-operator` and the `CnvrgApp` custom resource. 
+Capsule has been designed as a standalone tool, but it provides 3 interfaces for backup management. The backup management includes operations like automatic backup discovery, configuration of rotation and period, etc. Probably the most efficient way to use a capsule is in conjunction with `cnvrg-operator` and the `CnvrgApp` custom resource. 
 
-The interfaces, 
-`CnvrgApp` scanner - capsule is capable to scan all the `CnvrgApp` instances in the cluster and build on top of its backup plan. (what to deploy, where to deploy, how often to deploy, etc..)  
-The HTTP API (allowing to list available backups per cnvrg cluster)
-The S3 watcher API (listing, and executing an backups per backup requests) 
+The interfaces
+
+* `CnvrgApp` scanner - capsule is capable to scan all the `CnvrgApp` instances in the cluster and build on top of its backup plan. (what to deploy, where to deploy, how often to deploy, etc..)  
+* The HTTP API (allowing to list available backups per cnvrg cluster)
+* The S3 watcher API (listing, and executing an backups per backup requests) 
 
 Architecture schema: 
 
