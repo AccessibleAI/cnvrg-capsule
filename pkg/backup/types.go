@@ -6,6 +6,7 @@ import (
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/types"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -45,7 +46,7 @@ type PgBackup struct {
 	LocalDumpPath  string    `json:"localDumpPath"`
 	RemoteDumpPath string    `json:"remoteDumpPath"`
 	BackupCmd      []string  `json:"backupCmd"`
-	Period         int       `json:"period"`
+	Period         float64   `json:"period"`
 	Rotation       int       `json:"rotation"`
 }
 
@@ -119,7 +120,7 @@ func NewPgCredsWithAutoDiscovery(credsRef, ns string) (*PgCreds, error) {
 	}, nil
 }
 
-func NewPgBackup(idPrefix string, period int, rotation int, bucket Bucket, creds PgCreds) *PgBackup {
+func NewPgBackup(idPrefix string, period string, rotation int, bucket Bucket, creds PgCreds) *PgBackup {
 	backupId := fmt.Sprintf("%s-%s", idPrefix, shortuuid.New())
 	backupTime := time.Now()
 	localDumpPath := fmt.Sprintf("%s/%s.tar", viper.GetString("dumpdir"), backupId)
@@ -140,9 +141,27 @@ func NewPgBackup(idPrefix string, period int, rotation int, bucket Bucket, creds
 		BackupCmd:      backupCmd,
 		LocalDumpPath:  localDumpPath,
 		RemoteDumpPath: fmt.Sprintf("%s/%s-pg", bucket.DstDir, backupId),
-		Period:         period,
+		Period:         getPeriodInSeconds(period),
 		Rotation:       rotation,
 	}
 	log.Debugf("new PG Backup initiated: %#v", b)
 	return b
+}
+
+func getPeriodInSeconds(period string) float64 {
+	unit := period[len(period)-1:]
+	n, err := strconv.ParseFloat(period[:len(period)-1], 64)
+	if err != nil {
+		log.Fatalf("can't get cust period to int64, err: %s", err)
+	}
+	switch unit {
+	case "s":
+		return n // return as is
+	case "m":
+		return n * 60 // return minutes as seconds
+	case "h":
+		return n * 60 * 60 // return hours as seconds
+	}
+	log.Fatalf("period worng format, must be on of the [Xs, Xm, Xh]: %s", err)
+	return n
 }

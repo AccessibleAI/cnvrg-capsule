@@ -78,7 +78,7 @@ func shouldBackup(app mlopsv1.CnvrgApp) bool {
 			return true
 		}
 	} else {
-		log.Info("skipping, backup is not enabled (or whitelisted) for: %s/%s", app.Namespace, app.Name)
+		log.Infof("skipping, backup is not enabled (or whitelisted) for: %s/%s", app.Namespace, app.Name)
 		return false
 	}
 	return false
@@ -306,15 +306,15 @@ func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
 	}
 
 	// make sure if period for the next backup has been reached
-	diff := time.Now().Sub(pgBackups[0].BackupDate).Minutes()
-	if int(diff) < pgBackups[0].Period {
-		log.Infof("latest backup not reached expiration period (left: %dm), backup is not required", pgBackups[0].Period-int(diff))
+	diff := time.Now().Sub(pgBackups[0].BackupDate).Seconds()
+	if diff < pgBackups[0].Period {
+		log.Infof("latest backup not reached expiration period (left: %fs), backup is not required", pgBackups[0].Period-diff)
 		return false
 	}
 
 	// period has been expired, make sure max rotation didn't reached
 	if len(pgBackups) <= pb.Rotation {
-		log.Info("latest backup is old enough and max rotation didn't reached yet, backup is required")
+		log.Infof("latest backup is old enough (%fs), backup is required", diff-pgBackups[0].Period)
 		return true
 	}
 
