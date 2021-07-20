@@ -82,12 +82,12 @@ var cliBackup = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
 			logrus.Error("wrong parameter provided, must be one of the following: pg")
-			cmd.Help()
+			_ = cmd.Help()
 			os.Exit(1)
 		}
 		if args[0] != "pg" {
 			logrus.Errorf("wrong paramter provided: %s, must be one of the following: pg", args[0])
-			cmd.Help()
+			_ = cmd.Help()
 			os.Exit(1)
 		}
 		logrus.Info("starting capsule...")

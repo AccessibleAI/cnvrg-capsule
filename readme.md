@@ -49,3 +49,13 @@ Capsule backup engine includes 4 main internal processes (goroutines)
 2. Discover bucket configuration for backups: this infinite loop, list all the existing `CnvrgApp` objects, extract the destination bucket connection details and send them to `BucketsToWatchChan channel 
 3. Scan bucket for backup requests: this infinite loop, receive a S3 bucket object over the channel, and execute bucket scan for incomplete backup request, and then initiate actual backup process.
 
+### Usage 
+
+The cnvrg capsule will be automatically deployed by `cnvrg-operator`. 
+To deploy the capsule manually inside K8s cluster, 
+just create all K8s manifest from `./deploy` directory, or run `make deploy` 
+
+To install`capsule` locally on your Mac or Linux workstation, clone the repo and run
+* Mac: `make build-mac` will create `bin/capsule-linux-x86_64` 
+* Linux: `make build-linux` will create `bin/capsule-darwin-x86_64`
+
