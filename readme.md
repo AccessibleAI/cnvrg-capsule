@@ -21,7 +21,7 @@ The cnvrg capsule backups is depends on two components:
 1. The S3 bucket - which is acts as backend storage for backups 
 2. The `backupIndex.json` file, which is saved alongside with the actual backup and holds all the information about the actual backup, when it has been made, if the backup process has been successfully finished, etc. 
 
-These two concepts (S3 bucket and `backupIndex.json`) make cnvrg capsule backups to be completely agnostic to any other external systems, so even when a potential user will completely loose the complete K8s cluster and all the storage disk, until the S3 bucket will be available, anyone execute the data restore, based on the actual backup file and the `backupIndex.json` that hold all the necessary metadata for the successful restore.
+These two concepts (S3 bucket and `backupIndex.json`) make cnvrg capsule backups to be completely agnostic to any other external systems, so even when a potential user will completely loose the complete K8s cluster and all the storage disk, until the S3 bucket will be available, anyone can execute the data restore, based on the actual backup file and the `backupIndex.json` that hold all the necessary metadata for the successful restore.
 
 
 ### Cnvrg Capsule - architecture 
