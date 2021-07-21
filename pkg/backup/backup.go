@@ -372,18 +372,21 @@ func (pb *PgBackup) deactivate() {
 	log.Infof("backup: %s has been deactivated", pb.BackupId)
 }
 
-func (pb *PgBackup) remove() {
+func (pb *PgBackup) remove() bool {
 	mc := pb.Bucket.getMinioClient()
-	opts := minio.RemoveObjectOptions{GovernanceBypass: true}
+	opts := minio.RemoveObjectOptions{GovernanceBypass: false}
 	err := mc.RemoveObject(context.Background(), pb.Bucket.Bucket, pb.getBackupIndexFileName(), opts)
 	if err != nil {
 		log.Error(err)
+		return false
 	}
 	err = mc.RemoveObject(context.Background(), pb.Bucket.Bucket, pb.getDbDumpFileName(), opts)
 	if err != nil {
 		log.Error(err)
+		return false
 	}
 	log.Infof("backup dir: %s has been removed", pb.RemoteDumpPath)
+	return true
 }
 
 func (b *Bucket) getMinioClient() *minio.Client {
@@ -469,25 +472,25 @@ func (b *Bucket) ScanBucket() []*PgBackup {
 	return pgBackups
 }
 
-func (b *Bucket) rotateBackups() {
+func (b *Bucket) rotateBackups() bool {
 	backups := b.ScanBucket()
 	backupCount := len(backups)
 
 	// nothing to rotate when no backups exists
 	if backupCount == 0 {
 		log.Infof("in bucket: %s, pg backups list is 0, skipping rotation", b.Id)
-		return
+		return false
 	}
 
 	// rotation not needed yet
 	if backupCount <= backups[0].Rotation {
 		log.Infof("in bucket: %s, max rotation not reached yet (current: %d), skipping rotation", b.Id, backupCount)
-		return
+		return false
 	}
 	log.Infof("in bucket: %s, max rotation has been reached, rotating...", b.Id)
 
 	// remove the oldest backup
-	backups[backupCount-1].remove()
+	return backups[backupCount-1].remove()
 }
 
 func GetBackupBuckets() (bucket []*Bucket) {
