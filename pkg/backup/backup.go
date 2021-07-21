@@ -385,13 +385,25 @@ func (pb *PgBackup) remove() {
 }
 
 func (b *Bucket) getMinioClient() *minio.Client {
-
-	connOptions := &minio.Options{Creds: credentials.NewStaticV4(b.AccessKey, b.SecretKey, ""), Secure: b.UseSSL}
-	mc, err := minio.New(b.Endpoint, connOptions)
-	if err != nil {
-		log.Fatal(err)
+	if b.BucketType == MinioBucket {
+		connOptions := &minio.Options{Creds: credentials.NewStaticV4(b.AccessKey, b.SecretKey, ""), Secure: b.UseSSL}
+		mc, err := minio.New(b.Endpoint, connOptions)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return mc
 	}
-	return mc
+	if b.BucketType == AwsBucket {
+		iam := credentials.NewIAM("")
+		connOptions := &minio.Options{Creds: iam, Secure: true, Region: b.Region}
+		mc, err := minio.New("s3.amazonaws.com", connOptions)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return mc
+	}
+	log.Fatalf("not supported bucket type: %s", b.BucketType)
+	return nil
 }
 
 func (b *Bucket) ScanBucket() []*PgBackup {

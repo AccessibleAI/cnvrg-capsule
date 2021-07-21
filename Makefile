@@ -10,11 +10,16 @@ install-mac: build-mac
 	cnvrgctl completion bash > /usr/local/etc/bash_completion.d/cnvrgctl
 
 docker-build:
-	docker build . -t docker.io/cnvrg/cnvrg-capsule:v0.2
+	docker build . -t docker.io/cnvrg/cnvrg-capsule:v1.0
 
 docker-push:
-	docker push docker.io/cnvrg/cnvrg-capsule:v0.2
+	docker push docker.io/cnvrg/cnvrg-capsule:v1.0
 
 .PHONY: deploy
 deploy:
 	kubectl apply -f deploy/dep.yaml
+
+.PHONY: test
+test:
+	go test ./pkg/backup/... -v
+

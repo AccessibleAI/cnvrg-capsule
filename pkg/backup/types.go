@@ -13,15 +13,18 @@ import (
 
 type Status string
 
+type BucketType string
+
 type Bucket struct {
-	Id        string `json:"id"`
-	Endpoint  string `json:"endpoint"`
-	Region    string `json:"region"`
-	AccessKey string `json:"accessKey"`
-	SecretKey string `json:"secretKey"`
-	UseSSL    bool   `json:"useSSL"`
-	Bucket    string `json:"bucket"`
-	DstDir    string `json:"dstDir"`
+	Id         string     `json:"id"`
+	Endpoint   string     `json:"endpoint"`
+	Region     string     `json:"region"`
+	AccessKey  string     `json:"accessKey"`
+	SecretKey  string     `json:"secretKey"`
+	UseSSL     bool       `json:"useSSL"`
+	Bucket     string     `json:"bucket"`
+	DstDir     string     `json:"dstDir"`
+	BucketType BucketType `json:"bucketType"`
 }
 
 type PgCreds struct {
@@ -51,16 +54,21 @@ type PgBackup struct {
 }
 
 const (
-	Initialized       Status = "initialized"
-	DumpingDB         Status = "dumpingdb"
-	UploadingDB       Status = "uploadingdb"
-	Failed            Status = "failed"
-	Finished          Status = "finished"
-	MarkedForRotation Status = "markedforrotation"
-	IndexfileTag      string = "Indexfile"
+	Initialized Status = "initialized"
+	DumpingDB   Status = "dumpingdb"
+	UploadingDB Status = "uploadingdb"
+	Failed      Status = "failed"
+	Finished    Status = "finished"
+
+	IndexfileTag string = "Indexfile"
+
+	MinioBucket BucketType = "minio"
+	AwsBucket   BucketType = "aws"
+	AzureBucket BucketType = "azure"
+	GcpBucket   BucketType = "gcp"
 )
 
-func NewBackupBucket(endpoint, region, accessKey, secretKey, bucket, dstDir string) *Bucket {
+func NewBackupBucket(endpoint, region, accessKey, secretKey, bucket, dstDir string, bucketType BucketType) *Bucket {
 
 	if strings.Contains(endpoint, "https://") {
 		endpoint = strings.TrimPrefix(endpoint, "https://")
@@ -75,14 +83,15 @@ func NewBackupBucket(endpoint, region, accessKey, secretKey, bucket, dstDir stri
 	id := fmt.Sprintf("%s-%s-%s", endpoint, bucket, dstDir)
 
 	return &Bucket{
-		Id:        id,
-		Endpoint:  endpoint,
-		Region:    region,
-		AccessKey: accessKey,
-		SecretKey: secretKey,
-		UseSSL:    strings.Contains(endpoint, "https://"),
-		Bucket:    bucket,
-		DstDir:    dstDir,
+		Id:         id,
+		Endpoint:   endpoint,
+		Region:     region,
+		AccessKey:  accessKey,
+		SecretKey:  secretKey,
+		UseSSL:     strings.Contains(endpoint, "https://"),
+		Bucket:     bucket,
+		BucketType: bucketType,
+		DstDir:     dstDir,
 	}
 }
 
@@ -101,6 +110,7 @@ func NewBackupBucketWithAutoDiscovery(credsRef, ns string) (*Bucket, error) {
 		string(bucketSecret.Data["CNVRG_STORAGE_SECRET_KEY"]),
 		string(bucketSecret.Data["CNVRG_STORAGE_BUCKET"]),
 		"",
+		BucketType(bucketSecret.Data["CNVRG_STORAGE_TYPE"]),
 	)
 	return backupBucket, nil
 }

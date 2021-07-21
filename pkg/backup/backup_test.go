@@ -229,14 +229,15 @@ func initBucket() Bucket {
 	bn = strings.ReplaceAll(bn, "_", "z")
 	createBucket(bn)
 	return Bucket{
-		Id:        "my-bucket-id",
-		Endpoint:  "127.0.0.1:9000",
-		Region:    "useast2",
-		AccessKey: "123qweasd",
-		SecretKey: "123qweasd",
-		UseSSL:    false,
-		Bucket:    bn,
-		DstDir:    "cnvrg-smart-backups",
+		Id:         "my-bucket-id",
+		Endpoint:   "127.0.0.1:9000",
+		Region:     "useast2",
+		AccessKey:  "123qweasd",
+		SecretKey:  "123qweasd",
+		UseSSL:     false,
+		Bucket:     bn,
+		DstDir:     "cnvrg-smart-backups",
+		BucketType: MinioBucket,
 	}
 }
 
