@@ -46,21 +46,21 @@ var _ = Describe("Backup", func() {
 		Context("Test period parsing ", func() {
 			It("Test period parsing for seconds", func() {
 				var seconds float64 = 10
-				bucket := initBucket()
+				bucket := initMinioBucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 				backup := NewPgBackup("my-prefix", "10s", 3, bucket, pgCreds)
 				Expect(seconds).To(Equal(backup.Period))
 			})
 			It("Test period parsing for minutes", func() {
 				var seconds float64 = 60
-				bucket := initBucket()
+				bucket := initMinioBucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 				backup := NewPgBackup("my-prefix", "1m", 3, bucket, pgCreds)
 				Expect(seconds).To(Equal(backup.Period))
 			})
 			It("Test period parsing for hours", func() {
 				var seconds float64 = 3600
-				bucket := initBucket()
+				bucket := initMinioBucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 				backup := NewPgBackup("my-prefix", "1h", 3, bucket, pgCreds)
 				Expect(seconds).To(Equal(backup.Period))
@@ -70,7 +70,7 @@ var _ = Describe("Backup", func() {
 		Context("Test period limits", func() {
 
 			It("Backup request - test period not expired", func() {
-				bucket := initBucket()
+				bucket := initMinioBucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 				for i := 0; i < 5; i++ {
 					backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
@@ -80,7 +80,7 @@ var _ = Describe("Backup", func() {
 			})
 
 			It("Backup request - test period expired", func() {
-				bucket := initBucket()
+				bucket := initMinioBucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 				backup := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
 				_ = backup.createBackupRequest()
@@ -98,10 +98,10 @@ var _ = Describe("Backup", func() {
 
 		})
 
-		Context("Test backups - Minio bucket  ", func() {
+		Context("Test backups - Minio bucket", func() {
 
 			It("Test simple backup", func() {
-				bucket := initBucket()
+				bucket := initMinioBucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 				backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
 				_ = backup.createBackupRequest()
@@ -111,7 +111,7 @@ var _ = Describe("Backup", func() {
 			})
 
 			It("Test backup with restore", func() {
-				bucket := initBucket()
+				bucket := initMinioBucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 				backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
 				execSql(*backup, "create table auto_tests(f1 varchar(255), f2 varchar(255));")
@@ -136,20 +136,10 @@ var _ = Describe("Backup", func() {
 			})
 		})
 
-		Context("Test backups - AWS S3 bucket  ", func() {
+		Context("Test backups - AWS S3 bucket", func() {
 
-			FIt("Test simple backup", func() {
-				bucket := Bucket{
-					Id:         "my-bucket-id",
-					Endpoint:   "",
-					Region:     "us-east-2",
-					AccessKey:  os.Getenv("AWS_ACCESS_KEY"),
-					SecretKey:  os.Getenv("AWS_SECRET_KEY"),
-					UseSSL:     true,
-					Bucket:     "cnvrg-capsule-test-bucket",
-					DstDir:     "cnvrg-smart-backups",
-					BucketType: AwsBucket,
-				}
+			It("Test simple backup (AWS S3)", func() {
+				bucket := initS3Bucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 				backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
 				_ = backup.createBackupRequest()
@@ -158,6 +148,30 @@ var _ = Describe("Backup", func() {
 				Expect(backup.backup()).To(BeNil())
 			})
 
+			It("Test backup with restore (AWS S3)", func() {
+				bucket := initS3Bucket()
+				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+				backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
+				execSql(*backup, "create table auto_tests(f1 varchar(255), f2 varchar(255));")
+				execSql(*backup, "insert into auto_tests(f1, f2) values ('foo', 'bar');")
+				_ = backup.createBackupRequest()
+				backups := bucket.ScanBucket()
+				Expect(len(backups)).To(Equal(1))
+				Expect(backup.backup()).To(BeNil())
+				execSql(*backup, "drop table auto_tests;")
+
+				args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
+					"--clean",
+					"--create",
+					"--exit-on-error",
+					"--format=t",
+					backup.LocalDumpPath}
+				Expect(shellCmd("pg_restore", args)).To(BeNil())
+				foo, bar := validateSqlDataExists(*backup)
+				Expect(foo).To(Equal("foo"))
+				Expect(bar).To(Equal("bar"))
+
+			})
 		})
 	})
 })
@@ -248,7 +262,7 @@ func createBucket(bucket string) {
 	log.Printf("bucket: %s created", bucket)
 }
 
-func initBucket() Bucket {
+func initMinioBucket() Bucket {
 	bn, _ := shortid.Generate()
 	bn = strings.ReplaceAll(strings.ToLower(bn), "-", "z")
 	bn = strings.ReplaceAll(bn, "_", "z")
@@ -263,6 +277,23 @@ func initBucket() Bucket {
 		Bucket:     bn,
 		DstDir:     "cnvrg-smart-backups",
 		BucketType: MinioBucket,
+	}
+}
+
+func initS3Bucket() Bucket {
+	bn, _ := shortid.Generate()
+	bn = strings.ReplaceAll(strings.ToLower(bn), "-", "z")
+	bn = strings.ReplaceAll(bn, "_", "z")
+	return Bucket{
+		Id:         bn,
+		Endpoint:   "",
+		Region:     "us-east-2",
+		AccessKey:  os.Getenv("AWS_ACCESS_KEY"),
+		SecretKey:  os.Getenv("AWS_SECRET_KEY"),
+		UseSSL:     true,
+		Bucket:     "cnvrg-capsule-test-bucket",
+		DstDir:     bn,
+		BucketType: AwsBucket,
 	}
 }
 

@@ -60,7 +60,7 @@ const (
 	Failed      Status = "failed"
 	Finished    Status = "finished"
 
-	IndexfileTag string = "Indexfile"
+	IndexfileTag string = "indexfile"
 
 	MinioBucket BucketType = "minio"
 	AwsBucket   BucketType = "aws"

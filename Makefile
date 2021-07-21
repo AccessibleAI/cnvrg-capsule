@@ -21,5 +21,5 @@ deploy:
 
 .PHONY: test
 test:
-	go test ./pkg/backup/... -v
+	source hack/aws-test-bucket-creds.sh && go test ./pkg/backup/... -v
 

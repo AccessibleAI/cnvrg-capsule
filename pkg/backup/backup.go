@@ -341,7 +341,7 @@ func (pb *PgBackup) syncBackupState(userMetadata, userTags map[string]string) er
 }
 
 func (pb *PgBackup) getBackupIndexFileName() string {
-	return fmt.Sprintf("%s/%s.json", pb.RemoteDumpPath, pb.BackupId)
+	return fmt.Sprintf("%s/%s-%s.json", pb.RemoteDumpPath, IndexfileTag, pb.BackupId)
 }
 
 func (pb *PgBackup) getDbDumpFileName() string {
@@ -437,15 +437,15 @@ func (b *Bucket) getMinioClient() *minio.Client {
 
 func (b *Bucket) ScanBucket() []*PgBackup {
 	var pgBackups []*PgBackup
-	lo := minio.ListObjectsOptions{Prefix: b.DstDir, Recursive: true, WithMetadata: true}
+	lo := minio.ListObjectsOptions{Prefix: b.DstDir, Recursive: true}
 	objectCh := b.getMinioClient().ListObjects(context.Background(), b.Bucket, lo)
 	for object := range objectCh {
 		if object.Err != nil {
 			log.Errorf("error listing backups in: %s , err: %s ", b.Id, object.Err)
 			return nil
 		}
-		indexfileMetadataKey := fmt.Sprintf("X-Amz-Meta-%s", IndexfileTag)
-		if _, ok := object.UserMetadata[indexfileMetadataKey]; ok {
+		// only index files required for bucket scan
+		if strings.Contains(object.Key, IndexfileTag) {
 			mc := b.getMinioClient()
 			stream, err := mc.GetObject(context.Background(), b.Bucket, object.Key, minio.GetObjectOptions{})
 			if err != nil {
