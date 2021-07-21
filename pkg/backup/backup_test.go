@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/teris-io/shortid"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -97,7 +98,7 @@ var _ = Describe("Backup", func() {
 
 		})
 
-		Context("Test backups ", func() {
+		Context("Test backups - Minio bucket  ", func() {
 
 			It("Test simple backup", func() {
 				bucket := initBucket()
@@ -133,6 +134,30 @@ var _ = Describe("Backup", func() {
 				Expect(bar).To(Equal("bar"))
 
 			})
+		})
+
+		Context("Test backups - AWS S3 bucket  ", func() {
+
+			FIt("Test simple backup", func() {
+				bucket := Bucket{
+					Id:         "my-bucket-id",
+					Endpoint:   "",
+					Region:     "us-east-2",
+					AccessKey:  os.Getenv("AWS_ACCESS_KEY"),
+					SecretKey:  os.Getenv("AWS_SECRET_KEY"),
+					UseSSL:     true,
+					Bucket:     "cnvrg-capsule-test-bucket",
+					DstDir:     "cnvrg-smart-backups",
+					BucketType: AwsBucket,
+				}
+				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+				backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
+				_ = backup.createBackupRequest()
+				backups := bucket.ScanBucket()
+				Expect(len(backups)).To(Equal(1))
+				Expect(backup.backup()).To(BeNil())
+			})
+
 		})
 	})
 })

@@ -1,2 +1,3 @@
 .idea
 bin
+hack/aws-test-bucket-creds.sh

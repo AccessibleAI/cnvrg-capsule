@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
@@ -12,6 +13,8 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"sort"
@@ -232,29 +235,29 @@ func (pb *PgBackup) backup() error {
 	defer pb.deactivate()
 	// dump db
 	pb.Status = DumpingDB
-	if err := pb.syncBackupState(); err != nil {
+	if err := pb.syncBackupState(nil, nil); err != nil {
 		return err
 	}
 	if err := pb.DumpDb(); err != nil {
 		pb.Status = Failed
-		pb.syncBackupState()
+		pb.syncBackupState(nil, nil)
 		return err
 	}
 	// upload db dump to s3
 	pb.Status = UploadingDB
-	if err := pb.syncBackupState(); err != nil {
+	if err := pb.syncBackupState(nil, nil); err != nil {
 		return err
 	}
 	if err := pb.uploadDbDump(); err != nil {
 		pb.Status = Failed
-		pb.syncBackupState()
+		pb.syncBackupState(nil, nil)
 
 		return err
 	}
 
 	// finish backup
 	pb.Status = Finished
-	if err := pb.syncBackupState(); err != nil {
+	if err := pb.syncBackupState(nil, nil); err != nil {
 		return err
 	}
 
@@ -274,8 +277,8 @@ func (pb *PgBackup) createBackupRequest() error {
 		log.Infof("backup %s is not needed, skipping", pb.BackupId)
 		return nil
 	}
-
-	pb.syncBackupState()
+	userTags := map[string]string{IndexfileTag: "true"}
+	pb.syncBackupState(userTags, userTags)
 
 	return nil
 }
@@ -320,14 +323,13 @@ func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
 	return false
 }
 
-func (pb *PgBackup) syncBackupState() error {
+func (pb *PgBackup) syncBackupState(userMetadata, userTags map[string]string) error {
 	jsonStr, err := pb.Jsonify()
 	if err != nil {
 		return err
 	}
 	f := strings.NewReader(jsonStr)
-	userTags := map[string]string{IndexfileTag: "true"}
-	po := minio.PutObjectOptions{ContentType: "application/octet-stream", UserMetadata: userTags}
+	po := minio.PutObjectOptions{ContentType: "application/octet-stream", UserMetadata: userMetadata, UserTags: userTags}
 	_, err = pb.Bucket.getMinioClient().PutObject(context.Background(), pb.Bucket.Bucket, pb.getBackupIndexFileName(), f, f.Size(), po)
 	if err != nil {
 		log.Errorf("error saving object: %s to S3, err: %s", pb.getBackupIndexFileName(), err)
@@ -385,8 +387,25 @@ func (pb *PgBackup) remove() {
 }
 
 func (b *Bucket) getMinioClient() *minio.Client {
+
+	// skip TLS verify.
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
+	var transport http.RoundTripper = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       tlsConfig,
+		DisableCompression:    true,
+	}
+
 	if b.BucketType == MinioBucket {
-		connOptions := &minio.Options{Creds: credentials.NewStaticV4(b.AccessKey, b.SecretKey, ""), Secure: b.UseSSL}
+		connOptions := &minio.Options{Creds: credentials.NewStaticV4(b.AccessKey, b.SecretKey, ""), Secure: b.UseSSL, Transport: transport}
 		mc, err := minio.New(b.Endpoint, connOptions)
 		if err != nil {
 			log.Fatal(err)
@@ -394,13 +413,23 @@ func (b *Bucket) getMinioClient() *minio.Client {
 		return mc
 	}
 	if b.BucketType == AwsBucket {
-		iam := credentials.NewIAM("")
-		connOptions := &minio.Options{Creds: iam, Secure: true, Region: b.Region}
-		mc, err := minio.New("s3.amazonaws.com", connOptions)
-		if err != nil {
-			log.Fatal(err)
+		if b.AccessKey == "" && b.SecretKey == "" {
+			iam := credentials.NewIAM("")
+			connOptions := &minio.Options{Creds: iam, Secure: true, Region: b.Region, Transport: transport}
+			mc, err := minio.New("s3.amazonaws.com", connOptions)
+			if err != nil {
+				log.Fatal(err)
+			}
+			return mc
+		} else {
+			creds := credentials.NewStaticV4(b.AccessKey, b.SecretKey, "")
+			connOptions := &minio.Options{Creds: creds, Secure: true, Region: b.Region, Transport: transport}
+			mc, err := minio.New("s3.amazonaws.com", connOptions)
+			if err != nil {
+				log.Fatal(err)
+			}
+			return mc
 		}
-		return mc
 	}
 	log.Fatalf("not supported bucket type: %s", b.BucketType)
 	return nil
