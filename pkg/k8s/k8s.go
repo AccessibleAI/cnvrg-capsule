@@ -26,7 +26,6 @@ var (
 	log = logrus.WithField("module", "k8s")
 )
 
-
 func init() {
 	k8sClient = GetClient()
 }
@@ -36,17 +35,17 @@ func GetClient() client.Client {
 	scheme := runtime.NewScheme()
 	// register cnvrg mlops gvr
 	if err := mlopsv1.AddToScheme(scheme); err != nil {
-		log.Fatal(err)
+		log.Error(err)
 	}
 	// register v1core gvr
 	if err := v1core.AddToScheme(scheme); err != nil {
-		log.Fatal(err)
+		log.Error(err)
 	}
 
 	kubeconfig := ctrl.GetConfigOrDie()
 	controllerClient, err := client.New(kubeconfig, client.Options{Scheme: scheme})
 	if err != nil {
-		log.Fatal(err)
+		log.Error(err)
 		return nil
 	}
 	return controllerClient
