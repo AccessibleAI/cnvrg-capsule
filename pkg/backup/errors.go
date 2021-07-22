@@ -19,3 +19,13 @@ type RequiredKeyIsMissing struct {
 func (e *RequiredKeyIsMissing) Error() string {
 	return fmt.Sprintf("key: %s is missing in %s", e.Key, e.ObjectName)
 }
+
+type BucketPingFailure struct {
+	BucketId         string `json:"bucketId"`
+	ActualPingHash   string `json:"actualPingHash"`
+	ExpectedPingHash string `json:"expectedPingHash"`
+}
+
+func (e *BucketPingFailure) Error() string {
+	return fmt.Sprintf("ping failure [%s]: hashes are not eqaul: [ %s != %s ]", e.BucketId, e.ActualPingHash, e.ExpectedPingHash)
+}

@@ -136,10 +136,8 @@ func (pb *PgBackup) backup() error {
 
 func (pb *PgBackup) createBackupRequest() error {
 
-	exists, err := pb.ensureBackupBucketExists()
-
-	if err != nil || !exists {
-		log.Errorf("can't upload DB dump: %s, error during checking if bucket exists", pb.BackupId)
+	if err := pb.Bucket.Ping(); err != nil {
+		log.Errorf("can't upload DB dump: %s, error during pinging bucket", pb.BackupId)
 		return err
 	}
 
@@ -157,47 +155,28 @@ func (pb *PgBackup) createBackupRequest() error {
 	return nil
 }
 
-func (pb *PgBackup) ensureBackupBucketExists() (exists bool, err error) {
-	//if pb.Bucket.BucketType == AzureBucket || pb.Bucket.BucketType == AwsBucket {
-	//	log.Debugf("bucket type of: %s doesn not required bucket existing check, skipping", pb.Bucket.BucketType)
-	//	return true, nil
-	//}
-	//backupBucket := viper.GetString("backup-bucket")
-	//exists, err = pb.Bucket.getMinioClient().BucketExists(context.Background(), pb.Bucket.Bucket)
-	//if err != nil {
-	//	log.Errorf("can't check if %s exists, err: %s", backupBucket, err)
-	//}
-	//if exists {
-	//	log.Debugf("backup bucket %s exists", backupBucket)
-	//} else {
-	//	log.Errorf("backup bucket %s does not exists", backupBucket)
-	//	return false, &BucketDoesNotExists{BucketName: backupBucket, Message: "bucket does not exists"}
-	//}
-	return true, nil
-}
-
 func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
-	//pgBackups := pb.Bucket.ScanBucket()
-	//// backup is needed if backups list is empty
-	//if len(pgBackups) == 0 {
-	//	log.Info("no backups has been done so far, backup is required")
-	//	return true
-	//}
-	//
-	//// make sure if period for the next backup has been reached
-	//diff := time.Now().Sub(pgBackups[0].BackupDate).Seconds()
-	//if diff < pgBackups[0].Period {
-	//	log.Infof("latest backup not reached expiration period (left: %fs), backup is not required", pgBackups[0].Period-diff)
-	//	return false
-	//}
-	//
-	//// period has been expired, make sure max rotation didn't reached
-	//if len(pgBackups) <= pb.Rotation {
-	//	log.Infof("latest backup is old enough (%fs), backup is required", diff-pgBackups[0].Period)
-	//	return true
-	//}
-	//
-	//log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucketId: %s, cleanup backups manually, and ask Dima wtf?", pb.Bucket.Id)
+	pgBackups := pb.Bucket.ScanBucket()
+	// backup is needed if backups list is empty
+	if len(pgBackups) == 0 {
+		log.Info("no backups has been done so far, backup is required")
+		return true
+	}
+
+	// make sure if period for the next backup has been reached
+	diff := time.Now().Sub(pgBackups[0].BackupDate).Seconds()
+	if diff < pgBackups[0].Period {
+		log.Infof("latest backup not reached expiration period (left: %fs), backup is not required", pgBackups[0].Period-diff)
+		return false
+	}
+
+	// period has been expired, make sure max rotation didn't reached
+	if len(pgBackups) <= pb.Rotation {
+		log.Infof("latest backup is old enough (%fs), backup is required", diff-pgBackups[0].Period)
+		return true
+	}
+
+	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucketId: %s, cleanup backups manually, and ask Dima wtf?", pb.Bucket.BucketId())
 	return true
 }
 

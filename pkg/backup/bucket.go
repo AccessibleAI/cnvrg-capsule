@@ -10,9 +10,10 @@ type Status string
 type BucketType string
 
 type Bucket interface {
+	Ping() error
+	BucketId() string
 	GetDstDir() string
 	RotateBackups() bool
-	GetBucketName() string
 	ScanBucket() []*PgBackup
 	Remove(objectName string) error
 	UploadFile(path, objectName string) error

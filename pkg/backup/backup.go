@@ -19,8 +19,8 @@ var (
 func Run() {
 	log.Info("starting backup service...")
 	go discoverPgBackups()
-	//go discoverCnvrgAppBackupBucketConfiguration(BucketsToWatchChan)
-	//go scanBucketForBackupRequests(BucketsToWatchChan)
+	go discoverCnvrgAppBackupBucketConfiguration(BucketsToWatchChan)
+	go scanBucketForBackupRequests(BucketsToWatchChan)
 }
 
 func discoverPgBackups() {
@@ -58,8 +58,6 @@ func discoverPgBackups() {
 		}
 	}
 }
-
-
 
 func GetBackupBuckets() (bucket []Bucket) {
 	apps := k8s.GetCnvrgApps()

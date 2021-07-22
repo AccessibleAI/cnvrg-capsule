@@ -44,65 +44,72 @@ var _ = Describe("Backup", func() {
 
 		Context("Test period parsing ", func() {
 
-			//It("Test period parsing for seconds", func() {
-			//	var seconds float64 = 10
-			//	bucket := initMinioBucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//	backup := NewPgBackup("my-prefix", "10s", 3, bucket, pgCreds)
-			//	Expect(seconds).To(Equal(backup.Period))
-			//})
+			It("Test period parsing for seconds", func() {
+				var seconds float64 = 10
+				bucket := initMinioBucket()
+				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+				backup := NewPgBackup("my-prefix", "10s", 3, bucket, pgCreds)
+				Expect(seconds).To(Equal(backup.Period))
+			})
 
-			//It("Test period parsing for minutes", func() {
-			//	var seconds float64 = 60
-			//	bucket := initMinioBucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//	backup := NewPgBackup("my-prefix", "1m", 3, bucket, pgCreds)
-			//	Expect(seconds).To(Equal(backup.Period))
-			//})
+			It("Test period parsing for minutes", func() {
+				var seconds float64 = 60
+				bucket := initMinioBucket()
+				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+				backup := NewPgBackup("my-prefix", "1m", 3, bucket, pgCreds)
+				Expect(seconds).To(Equal(backup.Period))
+			})
 
-			//It("Test period parsing for hours", func() {
-			//	var seconds float64 = 3600
-			//	bucket := initMinioBucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//	backup := NewPgBackup("my-prefix", "1h", 3, bucket, pgCreds)
-			//	Expect(seconds).To(Equal(backup.Period))
-			//})
+			It("Test period parsing for hours", func() {
+				var seconds float64 = 3600
+				bucket := initMinioBucket()
+				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+				backup := NewPgBackup("my-prefix", "1h", 3, bucket, pgCreds)
+				Expect(seconds).To(Equal(backup.Period))
+			})
 		})
 
-		//Context("Test period limits", func() {
-		//
-		//	It("Backup request - test period not expired", func() {
-		//		bucket := initMinioBucket()
-		//		pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//		for i := 0; i < 5; i++ {
-		//			backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-		//			_ = backup.createBackupRequest()
-		//		}
-		//		Expect(len(bucket.ScanBucket())).To(Equal(1))
-		//	})
-		//
-		//	It("Backup request - test period expired", func() {
-		//		bucket := initMinioBucket()
-		//		pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//		backup := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup.createBackupRequest()
-		//		time.Sleep(1 * time.Second)
-		//		backup = NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup.createBackupRequest()
-		//		time.Sleep(1 * time.Second)
-		//		backup = NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup.createBackupRequest()
-		//		time.Sleep(1 * time.Second)
-		//		backup = NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup.createBackupRequest()
-		//		Expect(len(bucket.ScanBucket())).To(Equal(3))
-		//	})
-		//
-		//})
+		Context("Test period limits", func() {
+
+			It("Backup request - test period not expired", func() {
+				bucket := initMinioBucket()
+				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+				for i := 0; i < 5; i++ {
+					backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
+					_ = backup.createBackupRequest()
+				}
+				Expect(len(bucket.ScanBucket())).To(Equal(1))
+			})
+
+			It("Backup request - test period expired", func() {
+				bucket := initMinioBucket()
+				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+				backup := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+				_ = backup.createBackupRequest()
+				time.Sleep(1 * time.Second)
+				backup = NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+				_ = backup.createBackupRequest()
+				time.Sleep(1 * time.Second)
+				backup = NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+				_ = backup.createBackupRequest()
+				time.Sleep(1 * time.Second)
+				backup = NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+				_ = backup.createBackupRequest()
+				time.Sleep(1 * time.Second)
+				bucket.RotateBackups()
+				Expect(len(bucket.ScanBucket())).To(Equal(3))
+			})
+
+		})
 
 		Context("Minio bucket", func() {
 
-			FIt("Test simple backup", func() {
+			It("Test minio ping", func() {
+				bucket := initMinioBucket()
+				Expect(bucket.Ping()).To(BeNil())
+			})
+
+			It("Test simple backup", func() {
 				bucket := initMinioBucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 				backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
@@ -112,7 +119,7 @@ var _ = Describe("Backup", func() {
 				Expect(backup.backup()).To(BeNil())
 			})
 
-			FIt("Test backup with restore", func() {
+			It("Test backup with restore", func() {
 				tableName := "auto_tests_minio"
 				bucket := initMinioBucket()
 				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
@@ -137,31 +144,31 @@ var _ = Describe("Backup", func() {
 				Expect(bar).To(Equal("bar"))
 
 			})
-			//
-			//It("Test rotation Minio bucket", func() {
-			//	bucket := initMinioBucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//
-			//	backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-			//	_ = backup0.createBackupRequest()
-			//	time.Sleep(1 * time.Second)
-			//
-			//	backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-			//	_ = backup1.createBackupRequest()
-			//	time.Sleep(1 * time.Second)
-			//
-			//	backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-			//	_ = backup2.createBackupRequest()
-			//	backups := bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(3))
-			//	Expect(bucket.rotateBackups()).To(BeTrue())
-			//	backups = bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(2))
-			//	expected := []string{backups[0].BackupId, backups[1].BackupId}
-			//	shouldBe := []string{backup2.BackupId, backup1.BackupId}
-			//	Expect(expected).To(Equal(shouldBe))
-			//
-			//})
+
+			It("Test rotation Minio bucket", func() {
+				bucket := initMinioBucket()
+				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+
+				backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+				_ = backup0.createBackupRequest()
+				time.Sleep(1 * time.Second)
+
+				backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+				_ = backup1.createBackupRequest()
+				time.Sleep(1 * time.Second)
+
+				backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+				_ = backup2.createBackupRequest()
+				backups := bucket.ScanBucket()
+				Expect(len(backups)).To(Equal(3))
+				Expect(bucket.RotateBackups()).To(BeTrue())
+				backups = bucket.ScanBucket()
+				Expect(len(backups)).To(Equal(2))
+				expected := []string{backups[0].BackupId, backups[1].BackupId}
+				shouldBe := []string{backup2.BackupId, backup1.BackupId}
+				Expect(expected).To(Equal(shouldBe))
+
+			})
 		})
 
 		Context("AWS S3 bucket", func() {

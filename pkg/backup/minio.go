@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/teris-io/shortid"
 	"net"
 	"net/http"
 	"os"
@@ -28,7 +29,7 @@ type MinioBucket struct {
 }
 
 func (mb *MinioBucket) SyncMetadataState(state, objectName string) error {
-	mc := GetMinioClient(mb.Endpoint, mb.AccessKey, mb.SecretKey, mb.UseSSL)
+	mc := GetMinioClient(mb)
 	po := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	f := strings.NewReader(state)
 	_, err := mc.PutObject(context.Background(), mb.Bucket, objectName, f, f.Size(), po)
@@ -47,13 +48,13 @@ func (mb *MinioBucket) GetDstDir() string {
 	return mb.DstDir
 }
 
-func (mb *MinioBucket) GetBucketName() string {
-	return mb.Bucket
+func (mb *MinioBucket) BucketId() string {
+	return mb.Id
 }
 
 func (mb *MinioBucket) Remove(objectName string) error {
 	opts := minio.RemoveObjectOptions{GovernanceBypass: false}
-	mc := GetMinioClient(mb.Endpoint, mb.AccessKey, mb.SecretKey, mb.UseSSL)
+	mc := GetMinioClient(mb)
 	err := mc.RemoveObject(context.Background(), mb.Bucket, objectName, opts)
 	if err != nil {
 		log.Error(err)
@@ -86,7 +87,7 @@ func (mb *MinioBucket) RotateBackups() bool {
 func (mb *MinioBucket) ScanBucket() []*PgBackup {
 	var pgBackups []*PgBackup
 	lo := minio.ListObjectsOptions{Prefix: mb.GetDstDir(), Recursive: true}
-	mc := GetMinioClient(mb.Endpoint, mb.AccessKey, mb.SecretKey, mb.UseSSL)
+	mc := GetMinioClient(mb)
 	objectCh := mc.ListObjects(context.Background(), mb.Bucket, lo)
 	for object := range objectCh {
 		if object.Err != nil {
@@ -130,7 +131,7 @@ func (mb *MinioBucket) UploadFile(path, objectName string) error {
 		log.Errorf("can't open dump file: %s, err: %s", path, err)
 		return err
 	}
-	mc := GetMinioClient(mb.Endpoint, mb.AccessKey, mb.SecretKey, mb.UseSSL)
+	mc := GetMinioClient(mb)
 	uploadInfo, err := mc.PutObject(context.Background(), mb.Bucket, objectName, file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
 	if err != nil {
 		log.Error(err)
@@ -140,7 +141,30 @@ func (mb *MinioBucket) UploadFile(path, objectName string) error {
 	return nil
 }
 
-func GetMinioClient(endpoint, accessKey, secretKey string, secure bool) *minio.Client {
+func (mb *MinioBucket) Ping() error {
+	expectedHash, _ := shortid.Generate()
+	if err := mb.SyncMetadataState(expectedHash, "ping"); err != nil {
+		return err
+	}
+	mc := GetMinioClient(mb)
+	stream, err := mc.GetObject(context.Background(), mb.Bucket, "ping", minio.GetObjectOptions{})
+	if err != nil {
+		log.Errorf("ping failed, err: %s", err)
+		return err
+	}
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(stream); err != nil {
+		log.Errorf("ping failed, err: %s", err)
+		return err
+	}
+	actualHash := string(buf.Bytes())
+	if actualHash != expectedHash {
+		return &BucketPingFailure{BucketId: mb.Id, ActualPingHash: actualHash, ExpectedPingHash: expectedHash}
+	}
+	return nil
+}
+
+func GetMinioClient(mb *MinioBucket) *minio.Client {
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	var transport http.RoundTripper = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
@@ -155,8 +179,8 @@ func GetMinioClient(endpoint, accessKey, secretKey string, secure bool) *minio.C
 		TLSClientConfig:       tlsConfig,
 		DisableCompression:    true,
 	}
-	connOptions := &minio.Options{Creds: credentials.NewStaticV4(accessKey, secretKey, ""), Secure: secure, Transport: transport}
-	mc, err := minio.New(endpoint, connOptions)
+	connOptions := &minio.Options{Creds: credentials.NewStaticV4(mb.AccessKey, mb.SecretKey, ""), Secure: mb.UseSSL, Transport: transport}
+	mc, err := minio.New(mb.Endpoint, connOptions)
 	if err != nil {
 		log.Fatal(err)
 	}
