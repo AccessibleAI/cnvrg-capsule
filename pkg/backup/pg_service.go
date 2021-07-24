@@ -6,6 +6,10 @@ import (
 	"github.com/spf13/viper"
 )
 
+const (
+	PgService ServiceType = "postgresql"
+)
+
 type PgCreds struct {
 	Host   string `json:"host,omitempty"`
 	DbName string `json:"db,omitempty"`
@@ -20,7 +24,7 @@ type PgBackupService struct {
 }
 
 func (s *PgBackupService) ServiceType() ServiceType {
-	return PgServiceType
+	return PgService
 }
 func (s *PgBackupService) Backup() {
 

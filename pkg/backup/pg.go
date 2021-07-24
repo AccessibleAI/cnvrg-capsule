@@ -126,10 +126,10 @@ func (pb *Backup) createBackupRequest() error {
 		return err
 	}
 
-	//if !pb.ensureBackupRequestIsNeeded() {
-	//	log.Infof("backup %s is not needed, skipping", pb.BackupId)
-	//	return nil
-	//}
+	if !pb.ensureBackupRequestIsNeeded(pb.ServiceType) {
+		log.Infof("backup %s is not needed, skipping", pb.BackupId)
+		return nil
+	}
 
 	jsonStr, err := pb.Jsonify()
 	if err != nil {
@@ -162,7 +162,7 @@ func (pb *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
 	}
 
 	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucketId: %s, cleanup backups manually, and ask Dima wtf?", pb.Bucket.BucketId())
-	return true
+	return false
 }
 
 func (pb *Backup) syncBackupStateAzure() error {
@@ -272,30 +272,6 @@ func (pb *Backup) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	//// unmarshal PG Creds
-	//if err := json.Unmarshal(*objMap["pgCreds"], &pb.PgCreds); err != nil {
-	//	log.Error(err)
-	//	return err
-	//}
-
-	//// unmarshal local dump path
-	//if err := json.Unmarshal(*objMap["localDumpPath"], &pb.LocalDumpPath); err != nil {
-	//	log.Error(err)
-	//	return err
-	//}
-	//
-	//// unmarshal remote dump path
-	//if err := json.Unmarshal(*objMap["remoteDumpPath"], &pb.RemoteDumpPath); err != nil {
-	//	log.Error(err)
-	//	return err
-	//}
-	//
-	//// unmarshal backup cmd
-	//if err := json.Unmarshal(*objMap["backupCmd"], &pb.BackupCmd); err != nil {
-	//	log.Error(err)
-	//	return err
-	//}
-
 	// unmarshal period
 	if err := json.Unmarshal(*objMap["period"], &pb.Period); err != nil {
 		log.Error(err)
@@ -330,7 +306,7 @@ func (pb *Backup) UnmarshalJSON(b []byte) error {
 	}
 
 	// unmarshal service
-	if pb.ServiceType == PgServiceType {
+	if pb.ServiceType == PgService {
 		pgBackupService := PgBackupService{}
 		if err := json.Unmarshal(*objMap["service"], &pgBackupService); err != nil {
 			log.Error(err)
@@ -401,7 +377,7 @@ func (pb *Backup) setStatusAndSyncState(s Status) error {
 
 func NewBackup(bucket Bucket, backupService Service, period string, rotation int) *Backup {
 	b := &Backup{
-		BackupId:    shortuuid.New(),
+		BackupId:    fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
 		Bucket:      bucket,
 		Status:      Initialized,
 		Date:        time.Now(),

@@ -7,6 +7,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	"github.com/teris-io/shortid"
 	"net"
 	"os/exec"
@@ -43,266 +44,256 @@ var _ = Describe("Backup", func() {
 
 		Context("Test period parsing ", func() {
 
-			FIt("Test period parsing for seconds", func() {
-				//var seconds float64 = 10
+			It("Test period parsing for seconds", func() {
+				var seconds float64 = 10
 				bucket := initMinioBucket()
-				pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-
-				pgBackupService := NewPgBackupService(pgCreds)
-				backup := NewBackup(bucket, pgBackupService, "1m", 3)
-				backup.createBackupRequest()
-				backup.Bucket.ScanBucket(PgServiceType)
-				//Expect(seconds).To(Equal(backup.Period))
+				backup := NewBackup(bucket, getPgBackupService(), "10s", 3)
+				Expect(seconds).To(Equal(backup.Period))
 			})
 
-			//It("Test period parsing for minutes", func() {
-			//	var seconds float64 = 60
+			It("Test period parsing for minutes", func() {
+				var seconds float64 = 60
+				bucket := initMinioBucket()
+				backup := NewBackup(bucket, getPgBackupService(), "1m", 3)
+				Expect(seconds).To(Equal(backup.Period))
+			})
+
+			It("Test period parsing for hours", func() {
+				var seconds float64 = 3600
+				bucket := initMinioBucket()
+				backup := NewBackup(bucket, getPgBackupService(), "1h", 3)
+				Expect(seconds).To(Equal(backup.Period))
+			})
+		})
+
+		Context("Test period limits", func() {
+
+			It("Backup request - test period not expired", func() {
+				bucket := initMinioBucket()
+				for i := 0; i < 5; i++ {
+					backup := NewBackup(bucket, getPgBackupService(), "10m", 3)
+					_ = backup.createBackupRequest()
+				}
+				Expect(len(bucket.ScanBucket(PgService))).To(Equal(1))
+			})
+
+			FIt("Backup request - test period expired", func() {
+				bucket := initMinioBucket()
+				backup := NewBackup(bucket, getPgBackupService(), "1s", 2)
+				_ = backup.createBackupRequest()
+				time.Sleep(1 * time.Second)
+				backup = NewBackup(bucket, getPgBackupService(), "1s", 2)
+				_ = backup.createBackupRequest()
+				time.Sleep(1 * time.Second)
+				backup = NewBackup(bucket, getPgBackupService(), "1s", 2)
+				_ = backup.createBackupRequest()
+				time.Sleep(1 * time.Second)
+				backup = NewBackup(bucket, getPgBackupService(), "1s", 2)
+				_ = backup.createBackupRequest()
+				time.Sleep(1 * time.Second)
+				bucket.RotateBackups(PgService)
+				Expect(len(bucket.ScanBucket(PgService))).To(Equal(3))
+			})
+		})
+
+		Context("Minio bucket", func() {
+
+			//It("Test minio ping", func() {
+			//	bucket := initMinioBucket()
+			//	Expect(bucket.Ping()).To(BeNil())
+			//})
+
+			//It("Test simple backup", func() {
 			//	bucket := initMinioBucket()
 			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//	backup := NewPgBackup("my-prefix", "1m", 3, bucket, pgCreds)
-			//	Expect(seconds).To(Equal(backup.Period))
+			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
+			//	_ = backup.createBackupRequest()
+			//	backups := bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(1))
+			//	Expect(backup.backup()).To(BeNil())
 			//})
 			//
-			//It("Test period parsing for hours", func() {
-			//	var seconds float64 = 3600
+			//It("Test backup with restore", func() {
+			//	tableName := "auto_tests_minio"
 			//	bucket := initMinioBucket()
 			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//	backup := NewPgBackup("my-prefix", "1h", 3, bucket, pgCreds)
-			//	Expect(seconds).To(Equal(backup.Period))
+			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
+			//	execSql(*backup, fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
+			//	execSql(*backup, fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
+			//	_ = backup.createBackupRequest()
+			//	backups := bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(1))
+			//	Expect(backup.backup()).To(BeNil())
+			//	execSql(*backup, fmt.Sprintf("drop table %s;", tableName))
+			//
+			//	args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
+			//		"--clean",
+			//		"--create",
+			//		"--exit-on-error",
+			//		"--format=t",
+			//		backup.LocalDumpPath}
+			//	Expect(shellCmd("pg_restore", args)).To(BeNil())
+			//	foo, bar := validateSqlDataExists(*backup, tableName)
+			//	Expect(foo).To(Equal("foo"))
+			//	Expect(bar).To(Equal("bar"))
+			//
+			//})
+			//
+			//It("Test rotation Minio bucket", func() {
+			//	bucket := initMinioBucket()
+			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+			//
+			//	backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+			//	_ = backup0.createBackupRequest()
+			//	time.Sleep(1 * time.Second)
+			//
+			//	backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+			//	_ = backup1.createBackupRequest()
+			//	time.Sleep(1 * time.Second)
+			//
+			//	backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+			//	_ = backup2.createBackupRequest()
+			//	backups := bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(3))
+			//	Expect(bucket.RotateBackups()).To(BeTrue())
+			//	backups = bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(2))
+			//	expected := []string{backups[0].BackupId, backups[1].BackupId}
+			//	shouldBe := []string{backup2.BackupId, backup1.BackupId}
+			//	Expect(expected).To(Equal(shouldBe))
+			//
 			//})
 		})
 
-		//Context("Test period limits", func() {
-		//
-		//	It("Backup request - test period not expired", func() {
-		//		bucket := initMinioBucket()
-		//		pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//		for i := 0; i < 5; i++ {
-		//			backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-		//			_ = backup.createBackupRequest()
-		//		}
-		//		Expect(len(bucket.ScanBucket())).To(Equal(1))
-		//	})
-		//
-		//	It("Backup request - test period expired", func() {
-		//		bucket := initMinioBucket()
-		//		pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//		backup := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup.createBackupRequest()
-		//		time.Sleep(1 * time.Second)
-		//		backup = NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup.createBackupRequest()
-		//		time.Sleep(1 * time.Second)
-		//		backup = NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup.createBackupRequest()
-		//		time.Sleep(1 * time.Second)
-		//		backup = NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup.createBackupRequest()
-		//		time.Sleep(1 * time.Second)
-		//		bucket.RotateBackups()
-		//		Expect(len(bucket.ScanBucket())).To(Equal(3))
-		//	})
-		//
-		//})
-		//
-		//Context("Minio bucket", func() {
-		//
-		//	It("Test minio ping", func() {
-		//		bucket := initMinioBucket()
-		//		Expect(bucket.Ping()).To(BeNil())
-		//	})
-		//
-		//	It("Test simple backup", func() {
-		//		bucket := initMinioBucket()
-		//		pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//		backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-		//		_ = backup.createBackupRequest()
-		//		backups := bucket.ScanBucket()
-		//		Expect(len(backups)).To(Equal(1))
-		//		Expect(backup.backup()).To(BeNil())
-		//	})
-		//
-		//	It("Test backup with restore", func() {
-		//		tableName := "auto_tests_minio"
-		//		bucket := initMinioBucket()
-		//		pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//		backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-		//		execSql(*backup, fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
-		//		execSql(*backup, fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
-		//		_ = backup.createBackupRequest()
-		//		backups := bucket.ScanBucket()
-		//		Expect(len(backups)).To(Equal(1))
-		//		Expect(backup.backup()).To(BeNil())
-		//		execSql(*backup, fmt.Sprintf("drop table %s;", tableName))
-		//
-		//		args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
-		//			"--clean",
-		//			"--create",
-		//			"--exit-on-error",
-		//			"--format=t",
-		//			backup.LocalDumpPath}
-		//		Expect(shellCmd("pg_restore", args)).To(BeNil())
-		//		foo, bar := validateSqlDataExists(*backup, tableName)
-		//		Expect(foo).To(Equal("foo"))
-		//		Expect(bar).To(Equal("bar"))
-		//
-		//	})
-		//
-		//	It("Test rotation Minio bucket", func() {
-		//		bucket := initMinioBucket()
-		//		pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//
-		//		backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup0.createBackupRequest()
-		//		time.Sleep(1 * time.Second)
-		//
-		//		backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup1.createBackupRequest()
-		//		time.Sleep(1 * time.Second)
-		//
-		//		backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//		_ = backup2.createBackupRequest()
-		//		backups := bucket.ScanBucket()
-		//		Expect(len(backups)).To(Equal(3))
-		//		Expect(bucket.RotateBackups()).To(BeTrue())
-		//		backups = bucket.ScanBucket()
-		//		Expect(len(backups)).To(Equal(2))
-		//		expected := []string{backups[0].BackupId, backups[1].BackupId}
-		//		shouldBe := []string{backup2.BackupId, backup1.BackupId}
-		//		Expect(expected).To(Equal(shouldBe))
-		//
-		//	})
-		//})
-		//
-		//Context("AWS S3 bucket", func() {
-		//
-		//	//It("Test simple backup (AWS S3)", func() {
-		//	//	bucket := initS3Bucket()
-		//	//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//	//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-		//	//	_ = backup.createBackupRequest()
-		//	//	backups := bucket.ScanBucket()
-		//	//	Expect(len(backups)).To(Equal(1))
-		//	//	Expect(backup.backup()).To(BeNil())
-		//	//})
-		//	//
-		//	//It("Test backup with restore (AWS S3)", func() {
-		//	//	tableName := "auto_tests_aws_s3"
-		//	//	bucket := initS3Bucket()
-		//	//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//	//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-		//	//	execSql(*backup, fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
-		//	//	execSql(*backup, fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
-		//	//	_ = backup.createBackupRequest()
-		//	//	backups := bucket.ScanBucket()
-		//	//	Expect(len(backups)).To(Equal(1))
-		//	//	Expect(backup.backup()).To(BeNil())
-		//	//	execSql(*backup, fmt.Sprintf("drop table %s;", tableName))
-		//	//
-		//	//	args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
-		//	//		"--clean",
-		//	//		"--create",
-		//	//		"--exit-on-error",
-		//	//		"--format=t",
-		//	//		backup.LocalDumpPath}
-		//	//	Expect(shellCmd("pg_restore", args)).To(BeNil())
-		//	//	foo, bar := validateSqlDataExists(*backup, tableName)
-		//	//	Expect(foo).To(Equal("foo"))
-		//	//	Expect(bar).To(Equal("bar"))
-		//	//
-		//	//})
-		//	//
-		//	//It("Test rotation AWS S3 backup", func() {
-		//	//	bucket := initS3Bucket()
-		//	//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//	//
-		//	//	backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//	//	_ = backup0.createBackupRequest()
-		//	//	time.Sleep(1 * time.Second)
-		//	//
-		//	//	backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//	//	_ = backup1.createBackupRequest()
-		//	//	time.Sleep(1 * time.Second)
-		//	//
-		//	//	backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//	//	_ = backup2.createBackupRequest()
-		//	//	backups := bucket.ScanBucket()
-		//	//	Expect(len(backups)).To(Equal(3))
-		//	//	Expect(bucket.rotateBackups()).To(BeTrue())
-		//	//	backups = bucket.ScanBucket()
-		//	//	Expect(len(backups)).To(Equal(2))
-		//	//	expected := []string{backups[0].BackupId, backups[1].BackupId}
-		//	//	shouldBe := []string{backup2.BackupId, backup1.BackupId}
-		//	//	Expect(expected).To(Equal(shouldBe))
-		//	//
-		//	//})
-		//
-		//})
-		//
-		//Context("Azure S3 bucket", func() {
-		//
-		//	//FIt("Test simple backup (Azure S3)", func() {
-		//	//	bucket := initAzureBucket()
-		//	//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//	//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-		//	//	_ = backup.createBackupRequest()
-		//	//	backups := bucket.ScanBucket()
-		//	//	Expect(len(backups)).To(Equal(1))
-		//	//	Expect(backup.backup()).To(BeNil())
-		//	//})
-		//
-		//	//It("Test backup with restore (AWS S3)", func() {
-		//	//	tableName := "auto_tests_aws_s3"
-		//	//	bucket := initS3Bucket()
-		//	//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//	//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-		//	//	execSql(*backup, fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
-		//	//	execSql(*backup, fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
-		//	//	_ = backup.createBackupRequest()
-		//	//	backups := bucket.ScanBucket()
-		//	//	Expect(len(backups)).To(Equal(1))
-		//	//	Expect(backup.backup()).To(BeNil())
-		//	//	execSql(*backup, fmt.Sprintf("drop table %s;", tableName))
-		//	//
-		//	//	args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
-		//	//		"--clean",
-		//	//		"--create",
-		//	//		"--exit-on-error",
-		//	//		"--format=t",
-		//	//		backup.LocalDumpPath}
-		//	//	Expect(shellCmd("pg_restore", args)).To(BeNil())
-		//	//	foo, bar := validateSqlDataExists(*backup, tableName)
-		//	//	Expect(foo).To(Equal("foo"))
-		//	//	Expect(bar).To(Equal("bar"))
-		//	//
-		//	//})
-		//	//
-		//	//It("Test rotation AWS S3 backup", func() {
-		//	//	bucket := initS3Bucket()
-		//	//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-		//	//
-		//	//	backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//	//	_ = backup0.createBackupRequest()
-		//	//	time.Sleep(1 * time.Second)
-		//	//
-		//	//	backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//	//	_ = backup1.createBackupRequest()
-		//	//	time.Sleep(1 * time.Second)
-		//	//
-		//	//	backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-		//	//	_ = backup2.createBackupRequest()
-		//	//	backups := bucket.ScanBucket()
-		//	//	Expect(len(backups)).To(Equal(3))
-		//	//	Expect(bucket.rotateBackups()).To(BeTrue())
-		//	//	backups = bucket.ScanBucket()
-		//	//	Expect(len(backups)).To(Equal(2))
-		//	//	expected := []string{backups[0].BackupId, backups[1].BackupId}
-		//	//	shouldBe := []string{backup2.BackupId, backup1.BackupId}
-		//	//	Expect(expected).To(Equal(shouldBe))
-		//	//
-		//	//})
-		//
-		//})
+		Context("AWS S3 bucket", func() {
+
+			//It("Test simple backup (AWS S3)", func() {
+			//	bucket := initS3Bucket()
+			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
+			//	_ = backup.createBackupRequest()
+			//	backups := bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(1))
+			//	Expect(backup.backup()).To(BeNil())
+			//})
+			//
+			//It("Test backup with restore (AWS S3)", func() {
+			//	tableName := "auto_tests_aws_s3"
+			//	bucket := initS3Bucket()
+			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
+			//	execSql(*backup, fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
+			//	execSql(*backup, fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
+			//	_ = backup.createBackupRequest()
+			//	backups := bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(1))
+			//	Expect(backup.backup()).To(BeNil())
+			//	execSql(*backup, fmt.Sprintf("drop table %s;", tableName))
+			//
+			//	args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
+			//		"--clean",
+			//		"--create",
+			//		"--exit-on-error",
+			//		"--format=t",
+			//		backup.LocalDumpPath}
+			//	Expect(shellCmd("pg_restore", args)).To(BeNil())
+			//	foo, bar := validateSqlDataExists(*backup, tableName)
+			//	Expect(foo).To(Equal("foo"))
+			//	Expect(bar).To(Equal("bar"))
+			//
+			//})
+			//
+			//It("Test rotation AWS S3 backup", func() {
+			//	bucket := initS3Bucket()
+			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+			//
+			//	backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+			//	_ = backup0.createBackupRequest()
+			//	time.Sleep(1 * time.Second)
+			//
+			//	backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+			//	_ = backup1.createBackupRequest()
+			//	time.Sleep(1 * time.Second)
+			//
+			//	backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+			//	_ = backup2.createBackupRequest()
+			//	backups := bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(3))
+			//	Expect(bucket.rotateBackups()).To(BeTrue())
+			//	backups = bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(2))
+			//	expected := []string{backups[0].BackupId, backups[1].BackupId}
+			//	shouldBe := []string{backup2.BackupId, backup1.BackupId}
+			//	Expect(expected).To(Equal(shouldBe))
+			//
+			//})
+
+		})
+
+		Context("Azure S3 bucket", func() {
+
+			//FIt("Test simple backup (Azure S3)", func() {
+			//	bucket := initAzureBucket()
+			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
+			//	_ = backup.createBackupRequest()
+			//	backups := bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(1))
+			//	Expect(backup.backup()).To(BeNil())
+			//})
+
+			//It("Test backup with restore (AWS S3)", func() {
+			//	tableName := "auto_tests_aws_s3"
+			//	bucket := initS3Bucket()
+			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
+			//	execSql(*backup, fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
+			//	execSql(*backup, fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
+			//	_ = backup.createBackupRequest()
+			//	backups := bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(1))
+			//	Expect(backup.backup()).To(BeNil())
+			//	execSql(*backup, fmt.Sprintf("drop table %s;", tableName))
+			//
+			//	args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
+			//		"--clean",
+			//		"--create",
+			//		"--exit-on-error",
+			//		"--format=t",
+			//		backup.LocalDumpPath}
+			//	Expect(shellCmd("pg_restore", args)).To(BeNil())
+			//	foo, bar := validateSqlDataExists(*backup, tableName)
+			//	Expect(foo).To(Equal("foo"))
+			//	Expect(bar).To(Equal("bar"))
+			//
+			//})
+			//
+			//It("Test rotation AWS S3 backup", func() {
+			//	bucket := initS3Bucket()
+			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+			//
+			//	backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+			//	_ = backup0.createBackupRequest()
+			//	time.Sleep(1 * time.Second)
+			//
+			//	backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+			//	_ = backup1.createBackupRequest()
+			//	time.Sleep(1 * time.Second)
+			//
+			//	backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
+			//	_ = backup2.createBackupRequest()
+			//	backups := bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(3))
+			//	Expect(bucket.rotateBackups()).To(BeTrue())
+			//	backups = bucket.ScanBucket()
+			//	Expect(len(backups)).To(Equal(2))
+			//	expected := []string{backups[0].BackupId, backups[1].BackupId}
+			//	shouldBe := []string{backup2.BackupId, backup1.BackupId}
+			//	Expect(expected).To(Equal(shouldBe))
+			//
+			//})
+
+		})
 	})
 })
 
@@ -484,3 +475,8 @@ func initMinioBucket() *MinioBucket {
 //	}
 //	return
 //}
+
+func getPgBackupService() *PgBackupService {
+	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
+	return NewPgBackupService(pgCreds)
+}
