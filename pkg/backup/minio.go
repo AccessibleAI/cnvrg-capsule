@@ -32,7 +32,8 @@ func (mb *MinioBucket) SyncMetadataState(state, objectName string) error {
 	mc := GetMinioClient(mb)
 	po := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	f := strings.NewReader(state)
-	_, err := mc.PutObject(context.Background(), mb.Bucket, objectName, f, f.Size(), po)
+	fullObjectName := fmt.Sprintf("%s/%s", mb.GetDstDir(), objectName)
+	_, err := mc.PutObject(context.Background(), mb.Bucket, fullObjectName, f, f.Size(), po)
 	if err != nil {
 		log.Errorf("error saving object: %s to S3, err: %s", objectName, err)
 		return err
@@ -63,8 +64,8 @@ func (mb *MinioBucket) Remove(objectName string) error {
 	return nil
 }
 
-func (mb *MinioBucket) RotateBackups() bool {
-	backups := mb.ScanBucket()
+func (mb *MinioBucket) RotateBackups(serviceType ServiceType) bool {
+	backups := mb.ScanBucket(serviceType)
 	backupCount := len(backups)
 
 	// nothing to rotate when no backups exists
@@ -84,8 +85,9 @@ func (mb *MinioBucket) RotateBackups() bool {
 	return backups[backupCount-1].remove()
 }
 
-func (mb *MinioBucket) ScanBucket() []*PgBackup {
-	var pgBackups []*PgBackup
+func (mb *MinioBucket) ScanBucket(serviceType ServiceType) []*Backup {
+	log.Infof("scanning bucket for serviceType: %s", serviceType)
+	var backups []*Backup
 	lo := minio.ListObjectsOptions{Prefix: mb.GetDstDir(), Recursive: true}
 	mc := GetMinioClient(mb)
 	objectCh := mc.ListObjects(context.Background(), mb.Bucket, lo)
@@ -95,7 +97,7 @@ func (mb *MinioBucket) ScanBucket() []*PgBackup {
 			return nil
 		}
 		// only index files required for bucket scan
-		if strings.Contains(object.Key, IndexfileTag) {
+		if strings.Contains(object.Key, Indexfile) {
 			stream, err := mc.GetObject(context.Background(), mb.Bucket, object.Key, minio.GetObjectOptions{})
 			if err != nil {
 				log.Errorf("can't get object: %s, err: %s", object.Key, err)
@@ -106,16 +108,18 @@ func (mb *MinioBucket) ScanBucket() []*PgBackup {
 				log.Errorf("error reading stream, object: %s, err: %s", object.Key, err)
 				continue
 			}
-			pgBackup := PgBackup{}
-			if err := json.Unmarshal(buf.Bytes(), &pgBackup); err != nil {
-				log.Errorf("error unmarshal PgBackup request, object: %s, err: %s", object.Key, err)
+			backup := Backup{}
+			if err := json.Unmarshal(buf.Bytes(), &backup); err != nil {
+				log.Errorf("error unmarshal Backup request, object: %s, err: %s", object.Key, err)
 				continue
 			}
-			pgBackups = append(pgBackups, &pgBackup)
+			if backup.ServiceType == serviceType {
+				backups = append(backups, &backup)
+			}
 		}
 	}
-	sort.Slice(pgBackups, func(i, j int) bool { return pgBackups[i].BackupDate.After(pgBackups[j].BackupDate) })
-	return pgBackups
+	sort.Slice(backups, func(i, j int) bool { return backups[i].Date.After(backups[j].Date) })
+	return backups
 }
 
 func (mb *MinioBucket) UploadFile(path, objectName string) error {
@@ -147,7 +151,8 @@ func (mb *MinioBucket) Ping() error {
 		return err
 	}
 	mc := GetMinioClient(mb)
-	stream, err := mc.GetObject(context.Background(), mb.Bucket, "ping", minio.GetObjectOptions{})
+	objectName := fmt.Sprintf("%s/ping", mb.GetDstDir())
+	stream, err := mc.GetObject(context.Background(), mb.Bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
 		log.Errorf("ping failed, err: %s", err)
 		return err

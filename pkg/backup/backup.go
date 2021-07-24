@@ -1,13 +1,23 @@
 package backup
 
 import (
-	"fmt"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"sync"
 	"time"
 )
+
+type Backup struct {
+	BackupId    string      `json:"backupId"`
+	Rotation    int         `json:"rotation"`
+	Date        time.Time   `json:"date"`
+	Period      float64     `json:"period"`
+	Bucket      Bucket      `json:"bucket"`
+	ServiceType ServiceType `json:"serviceType"`
+	Service     Service     `json:"service"`
+	Status      Status      `json:"status"`
+}
 
 var (
 	log                = logrus.WithField("module", "backup-engine")
@@ -25,38 +35,41 @@ func Run() {
 
 func discoverPgBackups() {
 	// if auto-discovery is true
-	if viper.GetBool("auto-discovery") {
-		for {
-			// get all cnvrg apps
-			apps := k8s.GetCnvrgApps()
-			for _, app := range apps.Items {
-				// make sure backups enabled
-				if !ShouldBackup(app) {
-					continue // backup not required, either backup disabled or the ns is blocked for backups
-				}
-				// discover pg creds
-				pgCreds, err := NewPgCredsWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.CredsRef, app.Namespace)
-				if err != nil {
-					return
-				}
-				// discover destination bucket
-				bucket, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
-				if err != nil {
-					return
-				}
-
-				// create backup request
-				idPrefix := fmt.Sprintf("%s-%s", app.Name, app.Namespace)
-				period := app.Spec.Dbs.Pg.Backup.Period
-				rotation := app.Spec.Dbs.Pg.Backup.Rotation
-				backup := NewPgBackup(idPrefix, period, rotation, bucket, *pgCreds)
-				if err := backup.createBackupRequest(); err != nil {
-					log.Errorf("error creating backup request, err: %s", err)
-				}
-			}
-			time.Sleep(60 * time.Second)
-		}
-	}
+	//if viper.GetBool("auto-discovery") {
+	//	for {
+	//		// get all cnvrg apps
+	//		apps := k8s.GetCnvrgApps()
+	//		for _, app := range apps.Items {
+	//			// make sure backups enabled
+	//			if !ShouldBackup(app) {
+	//				continue // backup not required, either backup disabled or the ns is blocked for backups
+	//			}
+	//			// discover pg creds
+	//			//pgCreds, err := NewPgCredsWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.CredsRef, app.Namespace)
+	//			//if err != nil {
+	//			//	return
+	//			//}
+	//			// discover destination bucket
+	//			bucket, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+	//			if err != nil {
+	//				return
+	//			}
+	//
+	//			// create backup request
+	//			idPrefix := fmt.Sprintf("%s-%s", app.Name, app.Namespace)
+	//			period := app.Spec.Dbs.Pg.Backup.Period
+	//			rotation := app.Spec.Dbs.Pg.Backup.Rotation
+	//			pgBackupService := PgBackupService{}
+	//			backup := NewBackup(idPrefix, period, rotation, bucket, &pgBackupService)
+	//
+	//			//backup := NewPgBackup(idPrefix, period, rotation, bucket, *pgCreds)
+	//			if err := backup.createBackupRequest(); err != nil {
+	//				log.Errorf("error creating backup request, err: %s", err)
+	//			}
+	//		}
+	//		time.Sleep(60 * time.Second)
+	//	}
+	//}
 }
 
 func GetBackupBuckets() (bucket []Bucket) {
@@ -91,13 +104,12 @@ func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
 
 func scanBucketForBackupRequests(bb <-chan Bucket) {
 	for bucket := range bb {
-		bucket.RotateBackups()
-		for _, pgBackup := range bucket.ScanBucket() {
+		bucket.RotateBackups(PgServiceType)
+		for _, pgBackup := range bucket.ScanBucket(PgServiceType) {
 			go pgBackup.backup()
 		}
 	}
 }
-
 
 //func (b *Bucket) getMinioClient() *minio.Client {
 //

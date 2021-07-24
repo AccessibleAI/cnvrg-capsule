@@ -13,8 +13,8 @@ type Bucket interface {
 	Ping() error
 	BucketId() string
 	GetDstDir() string
-	RotateBackups() bool
-	ScanBucket() []*PgBackup
+	RotateBackups(serviceType ServiceType) bool
+	ScanBucket(serviceType ServiceType) []*Backup
 	Remove(objectName string) error
 	UploadFile(path, objectName string) error
 	SyncMetadataState(state, objectName string) error
@@ -67,7 +67,7 @@ const (
 	Failed      Status = "failed"
 	Finished    Status = "finished"
 
-	IndexfileTag string = "indexfile"
+	Indexfile string = "indexfile.json"
 
 	MinioBucketType BucketType = "minio"
 	AwsBucketType   BucketType = "aws"

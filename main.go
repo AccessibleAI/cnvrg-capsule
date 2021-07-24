@@ -121,7 +121,7 @@ var cliBackupPg = &cobra.Command{
 			idPrefix := fmt.Sprintf("%s-%s", app.Name, app.Namespace)
 			period := app.Spec.Dbs.Pg.Backup.Period
 			rotation := app.Spec.Dbs.Pg.Backup.Rotation
-			backup := backup.NewPgBackup(idPrefix, period, rotation, *bucket, *pgCreds)
+			backup := backup.NewPgBackup(idPrefix, period, rotation, bucket, *pgCreds)
 			if err := backup.DumpDb(); err != nil {
 				logrus.Fatalf("error dumping DB, err: %s", err)
 			}

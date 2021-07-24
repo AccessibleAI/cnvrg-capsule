@@ -1,40 +1,25 @@
 package backup
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
 	"github.com/lithammer/shortuuid/v3"
-	"github.com/spf13/viper"
-	"k8s.io/apimachinery/pkg/types"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 )
 
-type PgCreds struct {
-	Host   string `json:"host,omitempty"`
-	DbName string `json:"db,omitempty"`
-	User   string `json:"user,omitempty"`
-	Pass   string `json:"pass,omitempty"`
-}
+//type Backup struct {
+//	BackupId string    `json:"backupId"`
+//	Rotation int       `json:"rotation"`
+//	Date     time.Time `json:"date"`
+//	Period   float64   `json:"period"`
+//	Bucket   Bucket    `json:"bucket"`
+//	Service  Service   `json:"service"`
+//	Status   Status    `json:"status"`
+//}
 
-type PgBackup struct {
-	BackupId       string    `json:"backupId"`
-	Bucket         Bucket    `json:"bucket"`
-	Status         Status    `json:"status"`
-	BackupDate     time.Time `json:"backupDate"`
-	PgCreds        PgCreds   `json:"pgCreds,omitempty"`
-	LocalDumpPath  string    `json:"localDumpPath"`
-	RemoteDumpPath string    `json:"remoteDumpPath"`
-	BackupCmd      []string  `json:"backupCmd"`
-	Period         float64   `json:"period"`
-	Rotation       int       `json:"rotation"`
-}
-
-func (pb *PgBackup) Jsonify() (string, error) {
+func (pb *Backup) Jsonify() (string, error) {
 	jsonStr, err := json.Marshal(pb)
 	if err != nil {
 		log.Errorf("can't marshal struct, err: %v", err)
@@ -43,108 +28,108 @@ func (pb *PgBackup) Jsonify() (string, error) {
 	return string(jsonStr), nil
 }
 
-func (pb *PgBackup) DumpDb() error {
-	log.Infof("starting backup: %s", pb.BackupId)
-	cmdParams := append([]string{"-lc"}, strings.Join(pb.BackupCmd, " "))
-	log.Debugf("pg backup cmd: %s ", cmdParams)
-	cmd := exec.Command("/bin/bash", cmdParams...)
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	err = cmd.Start()
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	stdoutScanner := bufio.NewScanner(stdout)
-	for stdoutScanner.Scan() {
-		m := stdoutScanner.Text()
-		log.Infof("|%s| %s", pb.BackupId, m)
-	}
-
-	stderrScanner := bufio.NewScanner(stderr)
-	for stderrScanner.Scan() {
-		m := stderrScanner.Text()
-		log.Errorf("|%s| %s", pb.BackupId, m)
-		return err
-	}
-
-	if err := cmd.Wait(); err != nil {
-		log.Error(err)
-		return err
-	}
-
-	log.Infof("backup %s is finished", pb.BackupId)
+func (pb *Backup) DumpDb() error {
+	//log.Infof("starting backup: %s", pb.BackupId)
+	//cmdParams := append([]string{"-lc"}, strings.Join(pb.BackupCmd, " "))
+	//log.Debugf("pg backup cmd: %s ", cmdParams)
+	//cmd := exec.Command("/bin/bash", cmdParams...)
+	//
+	//stdout, err := cmd.StdoutPipe()
+	//if err != nil {
+	//	log.Error(err)
+	//	return err
+	//}
+	//
+	//stderr, err := cmd.StderrPipe()
+	//if err != nil {
+	//	log.Error(err)
+	//	return err
+	//}
+	//
+	//err = cmd.Start()
+	//if err != nil {
+	//	log.Error(err)
+	//	return err
+	//}
+	//
+	//stdoutScanner := bufio.NewScanner(stdout)
+	//for stdoutScanner.Scan() {
+	//	m := stdoutScanner.Text()
+	//	log.Infof("|%s| %s", pb.BackupId, m)
+	//}
+	//
+	//stderrScanner := bufio.NewScanner(stderr)
+	//for stderrScanner.Scan() {
+	//	m := stderrScanner.Text()
+	//	log.Errorf("|%s| %s", pb.BackupId, m)
+	//	return err
+	//}
+	//
+	//if err := cmd.Wait(); err != nil {
+	//	log.Error(err)
+	//	return err
+	//}
+	//
+	//log.Infof("backup %s is finished", pb.BackupId)
 	return nil
 
 }
 
-func (pb *PgBackup) backup() error {
+func (pb *Backup) backup() error {
 
-	// if backups status is Finished - all good, backup is ready
-	if pb.Status == Finished {
-		log.Infof("backup: %s status is finished, skipping backup", pb.BackupId)
-		return nil
-	}
-
-	// check if current backups is not active in another backup go routine
-	if pb.active() {
-		log.Infof("backup %s is active, skipping", pb.BackupId)
-		return nil
-	}
-	// activate backup in runtime - so other go routine won't initiate backup process again
-	pb.activate()
-	// deactivate backup
-	defer pb.deactivate()
-
-	// dump db
-	if err := pb.setStatusAndSyncState(DumpingDB); err != nil {
-		return err
-	}
-	if err := pb.DumpDb(); err != nil {
-		_ = pb.setStatusAndSyncState(Failed)
-		return err
-	}
-
-	// upload db dump to s3
-	if err := pb.setStatusAndSyncState(UploadingDB); err != nil {
-		return err
-	}
-	if err := pb.Bucket.UploadFile(pb.LocalDumpPath, pb.getDbDumpFileName()); err != nil {
-		_ = pb.setStatusAndSyncState(Failed)
-		return err
-	}
-
-	// finish backup
-	if err := pb.setStatusAndSyncState(Finished); err != nil {
-		return err
-	}
+	//// if backups status is Finished - all good, backup is ready
+	//if pb.Status == Finished {
+	//	log.Infof("backup: %s status is finished, skipping backup", pb.BackupId)
+	//	return nil
+	//}
+	//
+	//// check if current backups is not active in another backup go routine
+	//if pb.active() {
+	//	log.Infof("backup %s is active, skipping", pb.BackupId)
+	//	return nil
+	//}
+	//// activate backup in runtime - so other go routine won't initiate backup process again
+	//pb.activate()
+	//// deactivate backup
+	//defer pb.deactivate()
+	//
+	//// dump db
+	//if err := pb.setStatusAndSyncState(DumpingDB); err != nil {
+	//	return err
+	//}
+	//if err := pb.DumpDb(); err != nil {
+	//	_ = pb.setStatusAndSyncState(Failed)
+	//	return err
+	//}
+	//
+	//// upload db dump to s3
+	//if err := pb.setStatusAndSyncState(UploadingDB); err != nil {
+	//	return err
+	//}
+	//if err := pb.Bucket.UploadFile(pb.LocalDumpPath, pb.getDbDumpFileName()); err != nil {
+	//	_ = pb.setStatusAndSyncState(Failed)
+	//	return err
+	//}
+	//
+	//// finish backup
+	//if err := pb.setStatusAndSyncState(Finished); err != nil {
+	//	return err
+	//}
 
 	return nil
 }
 
-func (pb *PgBackup) createBackupRequest() error {
+func (pb *Backup) createBackupRequest() error {
 
 	if err := pb.Bucket.Ping(); err != nil {
 		log.Errorf("can't upload DB dump: %s, error during pinging bucket", pb.BackupId)
 		return err
 	}
 
-	if !pb.ensureBackupRequestIsNeeded() {
-		log.Infof("backup %s is not needed, skipping", pb.BackupId)
-		return nil
-	}
+	//if !pb.ensureBackupRequestIsNeeded() {
+	//	log.Infof("backup %s is not needed, skipping", pb.BackupId)
+	//	return nil
+	//}
 
 	jsonStr, err := pb.Jsonify()
 	if err != nil {
@@ -155,24 +140,24 @@ func (pb *PgBackup) createBackupRequest() error {
 	return nil
 }
 
-func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
-	pgBackups := pb.Bucket.ScanBucket()
+func (pb *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
+	backups := pb.Bucket.ScanBucket(serviceType)
 	// backup is needed if backups list is empty
-	if len(pgBackups) == 0 {
+	if len(backups) == 0 {
 		log.Info("no backups has been done so far, backup is required")
 		return true
 	}
 
 	// make sure if period for the next backup has been reached
-	diff := time.Now().Sub(pgBackups[0].BackupDate).Seconds()
-	if diff < pgBackups[0].Period {
-		log.Infof("latest backup not reached expiration period (left: %fs), backup is not required", pgBackups[0].Period-diff)
+	diff := time.Now().Sub(backups[0].Date).Seconds()
+	if diff < backups[0].Period {
+		log.Infof("latest backup not reached expiration period (left: %fs), backup is not required", backups[0].Period-diff)
 		return false
 	}
 
 	// period has been expired, make sure max rotation didn't reached
-	if len(pgBackups) <= pb.Rotation {
-		log.Infof("latest backup is old enough (%fs), backup is required", diff-pgBackups[0].Period)
+	if len(backups) <= pb.Rotation {
+		log.Infof("latest backup is old enough (%fs), backup is required", diff-backups[0].Period)
 		return true
 	}
 
@@ -180,7 +165,7 @@ func (pb *PgBackup) ensureBackupRequestIsNeeded() bool {
 	return true
 }
 
-func (pb *PgBackup) syncBackupStateAzure() error {
+func (pb *Backup) syncBackupStateAzure() error {
 	//credential, err := azblob.NewSharedKeyCredential(pb.Bucket.AccessKey, pb.Bucket.SecretKey)
 	//if err != nil {
 	//	log.Errorf("error saving object: %s to S3, err: %s", pb.getBackupIndexFileName(), err)
@@ -204,15 +189,16 @@ func (pb *PgBackup) syncBackupStateAzure() error {
 
 }
 
-func (pb *PgBackup) getBackupIndexFileName() string {
-	return fmt.Sprintf("%s/%s-%s.json", pb.RemoteDumpPath, IndexfileTag, pb.BackupId)
+func (pb *Backup) getBackupIndexFileName() string {
+	return fmt.Sprintf("%s/%s", pb.BackupId, Indexfile)
 }
 
-func (pb *PgBackup) getDbDumpFileName() string {
-	return fmt.Sprintf("%s/%s.tar", pb.RemoteDumpPath, pb.BackupId)
+func (pb *Backup) getDbDumpFileName() string {
+	//return fmt.Sprintf("%s/%s.tar", pb.RemoteDumpPath, pb.BackupId)
+	return fmt.Sprintf("%s/%s.tar", "pb.RemoteDumpPath", pb.BackupId)
 }
 
-func (pb *PgBackup) active() bool {
+func (pb *Backup) active() bool {
 	mutex.Lock()
 	_, active := activeBackups[pb.BackupId]
 	mutex.Unlock()
@@ -220,14 +206,14 @@ func (pb *PgBackup) active() bool {
 	return active
 }
 
-func (pb *PgBackup) activate() {
+func (pb *Backup) activate() {
 	mutex.Lock()
 	activeBackups[pb.BackupId] = true
 	mutex.Unlock()
 	log.Infof("backup: %s has been activated", pb.BackupId)
 }
 
-func (pb *PgBackup) deactivate() {
+func (pb *Backup) deactivate() {
 	mutex.Lock()
 	if _, active := activeBackups[pb.BackupId]; active {
 		delete(activeBackups, pb.BackupId)
@@ -236,37 +222,32 @@ func (pb *PgBackup) deactivate() {
 	log.Infof("backup: %s has been deactivated", pb.BackupId)
 }
 
-func (pb *PgBackup) remove() bool {
+func (pb *Backup) remove() bool {
 
-	if err := pb.Bucket.Remove(pb.getBackupIndexFileName()); err != nil {
-		log.Error(err)
-		return false
-	}
-
-	if err := pb.Bucket.Remove(pb.getDbDumpFileName()); err != nil {
-		log.Error(err)
-		return false
-	}
-
-	log.Infof("backup dir: %s has been removed", pb.RemoteDumpPath)
+	//if err := pb.Bucket.Remove(pb.getBackupIndexFileName()); err != nil {
+	//	log.Error(err)
+	//	return false
+	//}
+	//
+	//if err := pb.Bucket.Remove(pb.getDbDumpFileName()); err != nil {
+	//	log.Error(err)
+	//	return false
+	//}
+	//
+	//log.Infof("backup dir: %s has been removed", pb.RemoteDumpPath)
 	return true
 }
 
-func (pb *PgBackup) UnmarshalJSON(b []byte) error {
+func (pb *Backup) UnmarshalJSON(b []byte) error {
 	//help: http://gregtrowbridge.com/golang-json-serialization-with-interfaces/
 
-	// get the bucket struct
+	//get the bucket struct
 	var objMap map[string]*json.RawMessage
 	if err := json.Unmarshal(b, &objMap); err != nil {
 		log.Error(err)
 		return err
 	}
 
-	// unmarshal backupId
-	if err := json.Unmarshal(*objMap["backupId"], &pb.BackupId); err != nil {
-		log.Error(err)
-		return err
-	}
 	// unmarshal backupId
 	if err := json.Unmarshal(*objMap["backupId"], &pb.BackupId); err != nil {
 		log.Error(err)
@@ -280,34 +261,40 @@ func (pb *PgBackup) UnmarshalJSON(b []byte) error {
 	}
 
 	// unmarshal backupDate
-	if err := json.Unmarshal(*objMap["backupDate"], &pb.BackupDate); err != nil {
+	if err := json.Unmarshal(*objMap["date"], &pb.Date); err != nil {
 		log.Error(err)
 		return err
 	}
 
-	// unmarshal PG Creds
-	if err := json.Unmarshal(*objMap["pgCreds"], &pb.PgCreds); err != nil {
+	// unmarshal service type
+	if err := json.Unmarshal(*objMap["serviceType"], &pb.ServiceType); err != nil {
 		log.Error(err)
 		return err
 	}
 
-	// unmarshal local dump path
-	if err := json.Unmarshal(*objMap["localDumpPath"], &pb.LocalDumpPath); err != nil {
-		log.Error(err)
-		return err
-	}
+	//// unmarshal PG Creds
+	//if err := json.Unmarshal(*objMap["pgCreds"], &pb.PgCreds); err != nil {
+	//	log.Error(err)
+	//	return err
+	//}
 
-	// unmarshal remote dump path
-	if err := json.Unmarshal(*objMap["remoteDumpPath"], &pb.RemoteDumpPath); err != nil {
-		log.Error(err)
-		return err
-	}
-
-	// unmarshal backup cmd
-	if err := json.Unmarshal(*objMap["backupCmd"], &pb.BackupCmd); err != nil {
-		log.Error(err)
-		return err
-	}
+	//// unmarshal local dump path
+	//if err := json.Unmarshal(*objMap["localDumpPath"], &pb.LocalDumpPath); err != nil {
+	//	log.Error(err)
+	//	return err
+	//}
+	//
+	//// unmarshal remote dump path
+	//if err := json.Unmarshal(*objMap["remoteDumpPath"], &pb.RemoteDumpPath); err != nil {
+	//	log.Error(err)
+	//	return err
+	//}
+	//
+	//// unmarshal backup cmd
+	//if err := json.Unmarshal(*objMap["backupCmd"], &pb.BackupCmd); err != nil {
+	//	log.Error(err)
+	//	return err
+	//}
 
 	// unmarshal period
 	if err := json.Unmarshal(*objMap["period"], &pb.Period); err != nil {
@@ -341,10 +328,20 @@ func (pb *PgBackup) UnmarshalJSON(b []byte) error {
 		}
 		pb.Bucket = &mb
 	}
+
+	// unmarshal service
+	if pb.ServiceType == PgServiceType {
+		pgBackupService := PgBackupService{}
+		if err := json.Unmarshal(*objMap["service"], &pgBackupService); err != nil {
+			log.Error(err)
+			return err
+		}
+		pb.Service = &pgBackupService
+	}
 	return nil
 }
 
-func (pb *PgBackup) setStatusAndSyncState(s Status) error {
+func (pb *Backup) setStatusAndSyncState(s Status) error {
 	pb.Status = s
 	jsonStr, err := pb.Jsonify()
 	if err != nil {
@@ -358,46 +355,62 @@ func (pb *PgBackup) setStatusAndSyncState(s Status) error {
 	return nil
 }
 
-func NewPgCredsWithAutoDiscovery(credsRef, ns string) (*PgCreds, error) {
-	n := types.NamespacedName{Namespace: ns, Name: credsRef}
-	pgSecret := k8s.GetSecret(n)
-	if err := validatePgCreds(n.Name, pgSecret.Data); err != nil {
-		log.Errorf("pg creds secret invalid, err: %s", err)
-		return nil, err
-	}
-	return &PgCreds{
-		Host:   fmt.Sprintf("%s.%s", pgSecret.Data["POSTGRES_HOST"], ns),
-		DbName: string(pgSecret.Data["POSTGRES_DB"]),
-		User:   string(pgSecret.Data["POSTGRES_USER"]),
-		Pass:   string(pgSecret.Data["POSTGRES_PASSWORD"]),
-	}, nil
-}
+//func NewPgCredsWithAutoDiscovery(credsRef, ns string) (*PgCreds, error) {
+//	n := types.NamespacedName{Namespace: ns, Name: credsRef}
+//	pgSecret := k8s.GetSecret(n)
+//	if err := validatePgCreds(n.Name, pgSecret.Data); err != nil {
+//		log.Errorf("pg creds secret invalid, err: %s", err)
+//		return nil, err
+//	}
+//	return &PgCreds{
+//		Host:   fmt.Sprintf("%s.%s", pgSecret.Data["POSTGRES_HOST"], ns),
+//		DbName: string(pgSecret.Data["POSTGRES_DB"]),
+//		User:   string(pgSecret.Data["POSTGRES_USER"]),
+//		Pass:   string(pgSecret.Data["POSTGRES_PASSWORD"]),
+//	}, nil
+//}
 
-func NewPgBackup(idPrefix string, period string, rotation int, bucket Bucket, creds PgCreds) *PgBackup {
-	backupId := fmt.Sprintf("%s-%s", idPrefix, shortuuid.New())
-	backupTime := time.Now()
-	localDumpPath := fmt.Sprintf("%s/%s.tar", viper.GetString("dumpdir"), backupId)
-	backupCmd := []string{
-		"2>&1", // for some reason pg_dump with verbose mode outputs to stderr (wtf?)
-		"pg_dump",
-		fmt.Sprintf("--dbname=postgresql://%s:%s@%s:5432/%s", creds.User, creds.Pass, creds.Host, creds.DbName),
-		fmt.Sprintf("--file=%s", localDumpPath),
-		"--format=t",
-		"--verbose",
+//func NewPgBackup(idPrefix string, period string, rotation int, bucket Bucket, creds PgCreds) *Backup {
+//backupId := fmt.Sprintf("%s-%s", idPrefix, shortuuid.New())
+//backupTime := time.Now()
+////localDumpPath := fmt.Sprintf("%s/%s.tar", viper.GetString("dumpdir"), backupId)
+////backupCmd := []string{
+////	"2>&1", // for some reason pg_dump with verbose mode outputs to stderr (wtf?)
+////	"pg_dump",
+////	fmt.Sprintf("--dbname=postgresql://%s:%s@%s:5432/%s", creds.User, creds.Pass, creds.Host, creds.DbName),
+////	fmt.Sprintf("--file=%s", localDumpPath),
+////	"--format=t",
+////	"--verbose",
+////}
+//b := &Backup{
+//	BackupId: backupId,
+//	Bucket:   bucket,
+//	//PgCreds:        creds,
+//	Status:     Initialized,
+//	BackupDate: backupTime,
+//	//BackupCmd:      backupCmd,
+//	//LocalDumpPath:  localDumpPath,
+//	//RemoteDumpPath: fmt.Sprintf("%s/%s-pg", bucket.GetDstDir(), backupId),
+//	//Period:         getPeriodInSeconds(period),
+//	//Rotation:       rotation,
+//}
+//log.Debugf("new PG Backup initiated: %#v", b)
+//return b
+//return nil
+//}
+
+func NewBackup(bucket Bucket, backupService Service, period string, rotation int) *Backup {
+	b := &Backup{
+		BackupId:    shortuuid.New(),
+		Bucket:      bucket,
+		Status:      Initialized,
+		Date:        time.Now(),
+		ServiceType: backupService.ServiceType(),
+		Service:     backupService,
+		Period:      getPeriodInSeconds(period),
+		Rotation:    rotation,
 	}
-	b := &PgBackup{
-		BackupId:       backupId,
-		Bucket:         bucket,
-		PgCreds:        creds,
-		Status:         Initialized,
-		BackupDate:     backupTime,
-		BackupCmd:      backupCmd,
-		LocalDumpPath:  localDumpPath,
-		RemoteDumpPath: fmt.Sprintf("%s/%s-pg", bucket.GetDstDir(), backupId),
-		Period:         getPeriodInSeconds(period),
-		Rotation:       rotation,
-	}
-	log.Debugf("new PG Backup initiated: %#v", b)
+	log.Debugf("new backup initiated: %#v", b)
 	return b
 }
 

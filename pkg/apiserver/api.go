@@ -21,7 +21,7 @@ func RunApi() {
 }
 
 func ListBackups(c *gin.Context) {
-	var backups []*backup.PgBackup
+	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
 		backups = append(backups, bucket.ScanBucket()...)
 	}
