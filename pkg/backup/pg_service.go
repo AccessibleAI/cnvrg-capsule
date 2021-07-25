@@ -87,7 +87,7 @@ func (pgs *PgBackupService) DumpfileName() string {
 }
 
 func (pgs *PgBackupService) UploadBackupAssets(bucket Bucket, uploadId string) error {
-	objectName := fmt.Sprintf("%s/%s", uploadId, pgs.DumpfileLocalPath())
+	objectName := fmt.Sprintf("%s/%s", uploadId, pgs.Dumpfile)
 	return bucket.UploadFile(pgs.DumpfileLocalPath(), objectName)
 }
 

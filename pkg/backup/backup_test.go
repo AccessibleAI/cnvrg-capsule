@@ -140,7 +140,7 @@ var _ = Describe("Backup", func() {
 
 			})
 
-			It("Test rotation Minio bucket", func() {
+			It("Test rotation of completed backups - Minio bucket", func() {
 				bucket := initMinioBucket()
 
 				backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
@@ -156,6 +156,11 @@ var _ = Describe("Backup", func() {
 
 				backups := bucket.ScanBucket(PgService)
 				Expect(len(backups)).To(Equal(3))
+
+				_ = backup0.backup()
+				_ = backup1.backup()
+				_ = backup2.backup()
+
 				backups = bucket.ScanBucket(PgService)
 				Expect(bucket.RotateBackups(backups)).To(BeTrue())
 				backups = bucket.ScanBucket(PgService)
@@ -164,6 +169,31 @@ var _ = Describe("Backup", func() {
 				expected := []string{backups[0].BackupId, backups[1].BackupId}
 				shouldBe := []string{backup2.BackupId, backup1.BackupId}
 				Expect(expected).To(Equal(shouldBe))
+
+			})
+
+			It("Test rotation of not completed backups - Minio bucket", func() {
+				bucket := initMinioBucket()
+
+				backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+				_ = backup0.createBackupRequest()
+				time.Sleep(1 * time.Second)
+
+				backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+				_ = backup1.createBackupRequest()
+				time.Sleep(1 * time.Second)
+
+				backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+				_ = backup2.createBackupRequest()
+
+				backups := bucket.ScanBucket(PgService)
+				Expect(len(backups)).To(Equal(3))
+
+				backups = bucket.ScanBucket(PgService)
+				Expect(bucket.RotateBackups(backups)).To(BeFalse())
+
+				backups = bucket.ScanBucket(PgService)
+				Expect(len(backups)).To(Equal(3))
 
 			})
 		})

@@ -74,7 +74,7 @@ func (pb *Backup) backup() error {
 	if err := pb.setStatusAndSyncState(UploadingDB); err != nil {
 		return err
 	}
-	if err := pb.Service.UploadBackupAssets(pb.Bucket); err != nil {
+	if err := pb.Service.UploadBackupAssets(pb.Bucket, pb.BackupId); err != nil {
 		_ = pb.setStatusAndSyncState(Failed)
 		return err
 	}

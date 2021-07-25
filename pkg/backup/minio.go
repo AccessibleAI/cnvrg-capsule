@@ -84,8 +84,16 @@ func (mb *MinioBucket) RotateBackups(backups []*Backup) bool {
 		return false
 	}
 
+	// calculate success backups
+	successBackups := 0
+	for _, backup := range backups {
+		if backup.Status == Finished {
+			successBackups++
+		}
+	}
+
 	// rotation not needed yet
-	if backupCount <= backups[0].Rotation {
+	if successBackups <= backups[0].Rotation {
 		log.Infof("in bucket: %s, max rotation not reached yet (current: %d), skipping rotation", mb.Id, backupCount)
 		return false
 	}
