@@ -1,9 +1,12 @@
 package backup
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/spf13/viper"
+	"os/exec"
+	"strings"
 )
 
 const (
@@ -23,14 +26,69 @@ type PgBackupService struct {
 	Dumpfile string   `json:"dumpfile"`
 }
 
-func (s *PgBackupService) ServiceType() ServiceType {
+func (pgs *PgBackupService) ServiceType() ServiceType {
 	return PgService
 }
-func (s *PgBackupService) Backup() {
 
+func (pgs *PgBackupService) Dump() error {
+	log.Infof("starting backup: %s", pgs.Dumpfile)
+	cmdParams := append([]string{"-lc"}, strings.Join(pgs.DumpCmd, " "))
+	log.Debugf("pg backup cmd: %s ", cmdParams)
+	cmd := exec.Command("/bin/bash", cmdParams...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+
+	stdoutScanner := bufio.NewScanner(stdout)
+	for stdoutScanner.Scan() {
+		m := stdoutScanner.Text()
+		log.Infof("|%s| %s", pgs.Dumpfile, m)
+	}
+
+	stderrScanner := bufio.NewScanner(stderr)
+	for stderrScanner.Scan() {
+		m := stderrScanner.Text()
+		log.Errorf("|%s| %s", pgs.Dumpfile, m)
+		return err
+	}
+
+	if err := cmd.Wait(); err != nil {
+		log.Error(err)
+		return err
+	}
+
+	log.Infof("backup %s is finished", pgs.Dumpfile)
+	return nil
 }
 
-func (s *PgBackupService) CredsAutoDiscovery(credsRef, ns string) error {
+func (pgs *PgBackupService) DumpfileLocalPath() string {
+	return fmt.Sprintf("%s/%s", viper.GetString("dumpdir"), pgs.Dumpfile)
+}
+
+func (pgs *PgBackupService) DumpfileName() string {
+	return pgs.Dumpfile
+}
+
+func (pgs *PgBackupService) UploadBackupAssets(bucket Bucket) error {
+	return bucket.UploadFile(pgs.DumpfileLocalPath(), pgs.DumpfileName())
+}
+
+func (pgs *PgBackupService) CredsAutoDiscovery(credsRef, ns string) error {
 	//n := types.NamespacedName{Namespace: ns, Name: credsRef}
 	//pgSecret := k8s.GetSecret(n)
 	//if err := validatePgCreds(n.Name, pgSecret.Data); err != nil {

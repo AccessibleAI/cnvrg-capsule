@@ -1,4 +1,3 @@
-
 build-mac:
 	go build -v -o bin/capsule-darwin-x86_64 main.go
 
@@ -23,3 +22,5 @@ deploy:
 test:
 	source hack/aws-test-bucket-creds.sh && go test ./pkg/backup/... -v
 
+unfocus:
+	ginkgo unfocus

@@ -3,6 +3,8 @@ package backup
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v4"
+
 	//"github.com/jackc/pgx/v4"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -23,6 +25,7 @@ var (
 	accessKey  = "123qweasd"
 	secretKey  = "123qweasd"
 	endpoint   = "127.0.0.1:9000"
+	pgCreds    = PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 )
 
 var _ = Describe("Backup", func() {
@@ -77,8 +80,9 @@ var _ = Describe("Backup", func() {
 				Expect(len(bucket.ScanBucket(PgService))).To(Equal(1))
 			})
 
-			FIt("Backup request - test period expired", func() {
+			It("Backup request - test period expired", func() {
 				bucket := initMinioBucket()
+
 				backup := NewBackup(bucket, getPgBackupService(), "1s", 2)
 				_ = backup.createBackupRequest()
 				time.Sleep(1 * time.Second)
@@ -91,78 +95,79 @@ var _ = Describe("Backup", func() {
 				backup = NewBackup(bucket, getPgBackupService(), "1s", 2)
 				_ = backup.createBackupRequest()
 				time.Sleep(1 * time.Second)
-				bucket.RotateBackups(PgService)
+				
 				Expect(len(bucket.ScanBucket(PgService))).To(Equal(3))
 			})
 		})
 
 		Context("Minio bucket", func() {
 
-			//It("Test minio ping", func() {
-			//	bucket := initMinioBucket()
-			//	Expect(bucket.Ping()).To(BeNil())
-			//})
+			It("Test minio ping", func() {
+				bucket := initMinioBucket()
+				Expect(bucket.Ping()).To(BeNil())
+			})
 
-			//It("Test simple backup", func() {
-			//	bucket := initMinioBucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-			//	_ = backup.createBackupRequest()
-			//	backups := bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(1))
-			//	Expect(backup.backup()).To(BeNil())
-			//})
-			//
-			//It("Test backup with restore", func() {
-			//	tableName := "auto_tests_minio"
-			//	bucket := initMinioBucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-			//	execSql(*backup, fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
-			//	execSql(*backup, fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
-			//	_ = backup.createBackupRequest()
-			//	backups := bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(1))
-			//	Expect(backup.backup()).To(BeNil())
-			//	execSql(*backup, fmt.Sprintf("drop table %s;", tableName))
-			//
-			//	args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
-			//		"--clean",
-			//		"--create",
-			//		"--exit-on-error",
-			//		"--format=t",
-			//		backup.LocalDumpPath}
-			//	Expect(shellCmd("pg_restore", args)).To(BeNil())
-			//	foo, bar := validateSqlDataExists(*backup, tableName)
-			//	Expect(foo).To(Equal("foo"))
-			//	Expect(bar).To(Equal("bar"))
-			//
-			//})
-			//
-			//It("Test rotation Minio bucket", func() {
-			//	bucket := initMinioBucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//
-			//	backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-			//	_ = backup0.createBackupRequest()
-			//	time.Sleep(1 * time.Second)
-			//
-			//	backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-			//	_ = backup1.createBackupRequest()
-			//	time.Sleep(1 * time.Second)
-			//
-			//	backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-			//	_ = backup2.createBackupRequest()
-			//	backups := bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(3))
-			//	Expect(bucket.RotateBackups()).To(BeTrue())
-			//	backups = bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(2))
-			//	expected := []string{backups[0].BackupId, backups[1].BackupId}
-			//	shouldBe := []string{backup2.BackupId, backup1.BackupId}
-			//	Expect(expected).To(Equal(shouldBe))
-			//
-			//})
+			It("Test simple PostgreSQL backup", func() {
+				bucket := initMinioBucket()
+				backup := NewBackup(bucket, getPgBackupService(), "10m", 3)
+				_ = backup.createBackupRequest()
+				backups := bucket.ScanBucket(PgService)
+				Expect(len(backups)).To(Equal(1))
+				Expect(backup.backup()).To(BeNil())
+			})
+
+			It("Test backup with restore", func() {
+				tableName := "auto_tests_minio"
+				bucket := initMinioBucket()
+
+				backup := NewBackup(bucket, getPgBackupService(), "10m", 3)
+				execSql(fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
+				execSql(fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
+				_ = backup.createBackupRequest()
+				backups := bucket.ScanBucket(PgService)
+				Expect(len(backups)).To(Equal(1))
+				Expect(backup.backup()).To(BeNil())
+				execSql(fmt.Sprintf("drop table %s;", tableName))
+
+				args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
+					"--clean",
+					"--create",
+					"--exit-on-error",
+					"--format=t",
+					backup.Service.DumpfileLocalPath()}
+				Expect(shellCmd("pg_restore", args)).To(BeNil())
+				foo, bar := validateSqlDataExists(tableName)
+				Expect(foo).To(Equal("foo"))
+				Expect(bar).To(Equal("bar"))
+
+			})
+
+			It("Test rotation Minio bucket", func() {
+				bucket := initMinioBucket()
+
+				backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2)
+				_ = backup0.createBackupRequest()
+				time.Sleep(1 * time.Second)
+
+				backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2)
+				_ = backup1.createBackupRequest()
+				time.Sleep(1 * time.Second)
+
+				backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2)
+				_ = backup2.createBackupRequest()
+
+				backups := bucket.ScanBucket(PgService)
+				Expect(len(backups)).To(Equal(3))
+				backups = bucket.ScanBucket(PgService)
+				Expect(bucket.RotateBackups(backups)).To(BeTrue())
+				backups = bucket.ScanBucket(PgService)
+				Expect(len(backups)).To(Equal(2))
+
+				expected := []string{backups[0].BackupId, backups[1].BackupId}
+				shouldBe := []string{backup2.BackupId, backup1.BackupId}
+				Expect(expected).To(Equal(shouldBe))
+
+			})
 		})
 
 		Context("AWS S3 bucket", func() {
@@ -445,38 +450,37 @@ func initMinioBucket() *MinioBucket {
 //}
 //
 
-//func execSql(b Backup, sql string) {
-//	dbUrl := fmt.Sprintf("postgres://%s:%s@%s:5432/%s", b.PgCreds.User, b.PgCreds.Pass, b.PgCreds.Host, b.PgCreds.DbName)
-//	conn, err := pgx.Connect(context.Background(), dbUrl)
-//	if err != nil {
-//		log.Fatalf("unable to connect to database: %v", err)
-//
-//	}
-//	defer conn.Close(context.Background())
-//	_, err = conn.Exec(context.Background(), sql)
-//	if err != nil {
-//		log.Fatalf("row query failed: %v", err)
-//	}
-//}
-//
-////
-//func validateSqlDataExists(b Backup, tableName string) (foo, bar string) {
-//	dbUrl := fmt.Sprintf("postgres://%s:%s@%s:5432/%s", b.PgCreds.User, b.PgCreds.Pass, b.PgCreds.Host, b.PgCreds.DbName)
-//	conn, err := pgx.Connect(context.Background(), dbUrl)
-//	if err != nil {
-//		log.Fatalf("unable to connect to database: %v", err)
-//	}
-//	r, err := conn.Query(context.Background(), fmt.Sprintf("select f1,f2 from %s limit 1", tableName))
-//	r.Next()
-//	r.Scan(&foo, &bar)
-//	defer conn.Close(context.Background())
-//	if err != nil {
-//		log.Fatalf("row query failed: %v", err)
-//	}
-//	return
-//}
+func execSql(sql string) {
+	dbUrl := fmt.Sprintf("postgres://%s:%s@%s:5432/%s", pgCreds.User, pgCreds.Pass, pgCreds.Host, pgCreds.DbName)
+	conn, err := pgx.Connect(context.Background(), dbUrl)
+	if err != nil {
+		log.Fatalf("unable to connect to database: %v", err)
+
+	}
+	defer conn.Close(context.Background())
+	_, err = conn.Exec(context.Background(), sql)
+	if err != nil {
+		log.Fatalf("row query failed: %v", err)
+	}
+}
+
+func validateSqlDataExists(tableName string) (foo, bar string) {
+
+	dbUrl := fmt.Sprintf("postgres://%s:%s@%s:5432/%s", pgCreds.User, pgCreds.Pass, pgCreds.Host, pgCreds.DbName)
+	conn, err := pgx.Connect(context.Background(), dbUrl)
+	if err != nil {
+		log.Fatalf("unable to connect to database: %v", err)
+	}
+	r, err := conn.Query(context.Background(), fmt.Sprintf("select f1,f2 from %s limit 1", tableName))
+	r.Next()
+	r.Scan(&foo, &bar)
+	defer conn.Close(context.Background())
+	if err != nil {
+		log.Fatalf("row query failed: %v", err)
+	}
+	return
+}
 
 func getPgBackupService() *PgBackupService {
-	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
 	return NewPgBackupService(pgCreds)
 }

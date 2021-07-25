@@ -104,7 +104,8 @@ func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
 
 func scanBucketForBackupRequests(bb <-chan Bucket) {
 	for bucket := range bb {
-		bucket.RotateBackups(PgService)
+		pgBackups := bucket.ScanBucket(PgService)
+		bucket.RotateBackups(pgBackups)
 		for _, pgBackup := range bucket.ScanBucket(PgService) {
 			go pgBackup.backup()
 		}

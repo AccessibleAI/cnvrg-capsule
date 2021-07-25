@@ -13,23 +13,12 @@ type Bucket interface {
 	Ping() error
 	BucketId() string
 	GetDstDir() string
-	RotateBackups(serviceType ServiceType) bool
-	ScanBucket(serviceType ServiceType) []*Backup
-	Remove(objectName string) error
+	Remove(dirName string) error
+	RotateBackups(backups []*Backup) bool
 	UploadFile(path, objectName string) error
+	ScanBucket(serviceType ServiceType) []*Backup
 	SyncMetadataState(state, objectName string) error
 }
-
-//type MinioBucket struct {
-//	Id        string `json:"id"`
-//	Endpoint  string `json:"endpoint"`
-//	Region    string `json:"region"`
-//	AccessKey string `json:"accessKey"`
-//	SecretKey string `json:"secretKey"`
-//	UseSSL    bool   `json:"useSSL"`
-//	Bucket    string `json:"bucket"`
-//	DstDir    string `json:"dstDir"`
-//}
 
 type AwsBucket struct {
 	Id        string `json:"id"`
@@ -48,17 +37,6 @@ type AzureBucket struct {
 	DstDir      string `json:"dstDir"`
 }
 
-//type Bucket struct {
-//	Id         string     `json:"id"`
-//	Endpoint   string     `json:"endpoint"`
-//	Region     string     `json:"region"`
-//	AccessKey  string     `json:"accessKey"`
-//	SecretKey  string     `json:"secretKey"`
-//	UseSSL     bool       `json:"useSSL"`
-//	Bucket     string     `json:"bucket"`
-//	DstDir     string     `json:"dstDir"`
-//	BucketType BucketType `json:"bucketType"`
-//}
 
 const (
 	Initialized Status = "initialized"

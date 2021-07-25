@@ -28,93 +28,47 @@ func (pb *Backup) Jsonify() (string, error) {
 	return string(jsonStr), nil
 }
 
-func (pb *Backup) DumpDb() error {
-	//log.Infof("starting backup: %s", pb.BackupId)
-	//cmdParams := append([]string{"-lc"}, strings.Join(pb.BackupCmd, " "))
-	//log.Debugf("pg backup cmd: %s ", cmdParams)
-	//cmd := exec.Command("/bin/bash", cmdParams...)
-	//
-	//stdout, err := cmd.StdoutPipe()
-	//if err != nil {
-	//	log.Error(err)
-	//	return err
-	//}
-	//
-	//stderr, err := cmd.StderrPipe()
-	//if err != nil {
-	//	log.Error(err)
-	//	return err
-	//}
-	//
-	//err = cmd.Start()
-	//if err != nil {
-	//	log.Error(err)
-	//	return err
-	//}
-	//
-	//stdoutScanner := bufio.NewScanner(stdout)
-	//for stdoutScanner.Scan() {
-	//	m := stdoutScanner.Text()
-	//	log.Infof("|%s| %s", pb.BackupId, m)
-	//}
-	//
-	//stderrScanner := bufio.NewScanner(stderr)
-	//for stderrScanner.Scan() {
-	//	m := stderrScanner.Text()
-	//	log.Errorf("|%s| %s", pb.BackupId, m)
-	//	return err
-	//}
-	//
-	//if err := cmd.Wait(); err != nil {
-	//	log.Error(err)
-	//	return err
-	//}
-	//
-	//log.Infof("backup %s is finished", pb.BackupId)
-	return nil
-
-}
-
 func (pb *Backup) backup() error {
 
-	//// if backups status is Finished - all good, backup is ready
-	//if pb.Status == Finished {
-	//	log.Infof("backup: %s status is finished, skipping backup", pb.BackupId)
-	//	return nil
-	//}
-	//
-	//// check if current backups is not active in another backup go routine
-	//if pb.active() {
-	//	log.Infof("backup %s is active, skipping", pb.BackupId)
-	//	return nil
-	//}
-	//// activate backup in runtime - so other go routine won't initiate backup process again
-	//pb.activate()
-	//// deactivate backup
-	//defer pb.deactivate()
-	//
-	//// dump db
-	//if err := pb.setStatusAndSyncState(DumpingDB); err != nil {
-	//	return err
-	//}
-	//if err := pb.DumpDb(); err != nil {
-	//	_ = pb.setStatusAndSyncState(Failed)
-	//	return err
-	//}
-	//
-	//// upload db dump to s3
-	//if err := pb.setStatusAndSyncState(UploadingDB); err != nil {
-	//	return err
-	//}
-	//if err := pb.Bucket.UploadFile(pb.LocalDumpPath, pb.getDbDumpFileName()); err != nil {
-	//	_ = pb.setStatusAndSyncState(Failed)
-	//	return err
-	//}
-	//
-	//// finish backup
-	//if err := pb.setStatusAndSyncState(Finished); err != nil {
-	//	return err
-	//}
+	// if backups status is Finished - all good, backup is ready
+	if pb.Status == Finished {
+		log.Infof("backup: %s status is finished, skipping backup", pb.BackupId)
+		return nil
+	}
+
+	// check if current backups is not active in another backup go routine
+	if pb.active() {
+		log.Infof("backup %s is active, skipping", pb.BackupId)
+		return nil
+	}
+	// activate backup in runtime - so other go routine won't initiate backup process again
+	pb.activate()
+	// deactivate backup
+	defer pb.deactivate()
+
+	// dump db
+	if err := pb.setStatusAndSyncState(DumpingDB); err != nil {
+		return err
+	}
+
+	if err := pb.Service.Dump(); err != nil {
+		_ = pb.setStatusAndSyncState(Failed)
+		return err
+	}
+
+	// upload db dump to s3
+	if err := pb.setStatusAndSyncState(UploadingDB); err != nil {
+		return err
+	}
+	if err := pb.Service.UploadBackupAssets(pb.Bucket); err != nil {
+		_ = pb.setStatusAndSyncState(Failed)
+		return err
+	}
+
+	// finish backup
+	if err := pb.setStatusAndSyncState(Finished); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -193,11 +147,6 @@ func (pb *Backup) getBackupIndexFileName() string {
 	return fmt.Sprintf("%s/%s", pb.BackupId, Indexfile)
 }
 
-func (pb *Backup) getDbDumpFileName() string {
-	//return fmt.Sprintf("%s/%s.tar", pb.RemoteDumpPath, pb.BackupId)
-	return fmt.Sprintf("%s/%s.tar", "pb.RemoteDumpPath", pb.BackupId)
-}
-
 func (pb *Backup) active() bool {
 	mutex.Lock()
 	_, active := activeBackups[pb.BackupId]
@@ -220,22 +169,6 @@ func (pb *Backup) deactivate() {
 	}
 	mutex.Unlock()
 	log.Infof("backup: %s has been deactivated", pb.BackupId)
-}
-
-func (pb *Backup) remove() bool {
-
-	//if err := pb.Bucket.Remove(pb.getBackupIndexFileName()); err != nil {
-	//	log.Error(err)
-	//	return false
-	//}
-	//
-	//if err := pb.Bucket.Remove(pb.getDbDumpFileName()); err != nil {
-	//	log.Error(err)
-	//	return false
-	//}
-	//
-	//log.Infof("backup dir: %s has been removed", pb.RemoteDumpPath)
-	return true
 }
 
 func (pb *Backup) UnmarshalJSON(b []byte) error {
@@ -331,6 +264,39 @@ func (pb *Backup) setStatusAndSyncState(s Status) error {
 	return nil
 }
 
+func NewBackup(bucket Bucket, backupService Service, period string, rotation int) *Backup {
+	b := &Backup{
+		BackupId:    fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
+		Bucket:      bucket,
+		Status:      Initialized,
+		Date:        time.Now(),
+		ServiceType: backupService.ServiceType(),
+		Service:     backupService,
+		Period:      getPeriodInSeconds(period),
+		Rotation:    rotation,
+	}
+	log.Debugf("new backup initiated: %#v", b)
+	return b
+}
+
+func getPeriodInSeconds(period string) float64 {
+	unit := period[len(period)-1:]
+	n, err := strconv.ParseFloat(period[:len(period)-1], 64)
+	if err != nil {
+		log.Fatalf("can't get cust period to int64, err: %s", err)
+	}
+	switch unit {
+	case "s":
+		return n // return as is
+	case "m":
+		return n * 60 // return minutes as seconds
+	case "h":
+		return n * 60 * 60 // return hours as seconds
+	}
+	log.Fatalf("period worng format, must be on of the [Xs, Xm, Xh]: %s", err)
+	return n
+}
+
 //func NewPgCredsWithAutoDiscovery(credsRef, ns string) (*PgCreds, error) {
 //	n := types.NamespacedName{Namespace: ns, Name: credsRef}
 //	pgSecret := k8s.GetSecret(n)
@@ -374,36 +340,3 @@ func (pb *Backup) setStatusAndSyncState(s Status) error {
 //return b
 //return nil
 //}
-
-func NewBackup(bucket Bucket, backupService Service, period string, rotation int) *Backup {
-	b := &Backup{
-		BackupId:    fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
-		Bucket:      bucket,
-		Status:      Initialized,
-		Date:        time.Now(),
-		ServiceType: backupService.ServiceType(),
-		Service:     backupService,
-		Period:      getPeriodInSeconds(period),
-		Rotation:    rotation,
-	}
-	log.Debugf("new backup initiated: %#v", b)
-	return b
-}
-
-func getPeriodInSeconds(period string) float64 {
-	unit := period[len(period)-1:]
-	n, err := strconv.ParseFloat(period[:len(period)-1], 64)
-	if err != nil {
-		log.Fatalf("can't get cust period to int64, err: %s", err)
-	}
-	switch unit {
-	case "s":
-		return n // return as is
-	case "m":
-		return n * 60 // return minutes as seconds
-	case "h":
-		return n * 60 * 60 // return hours as seconds
-	}
-	log.Fatalf("period worng format, must be on of the [Xs, Xm, Xh]: %s", err)
-	return n
-}

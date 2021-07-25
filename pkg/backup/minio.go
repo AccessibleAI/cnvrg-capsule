@@ -53,19 +53,29 @@ func (mb *MinioBucket) BucketId() string {
 	return mb.Id
 }
 
-func (mb *MinioBucket) Remove(objectName string) error {
-	opts := minio.RemoveObjectOptions{GovernanceBypass: false}
+func (mb *MinioBucket) Remove(backupDirName string) error {
+
 	mc := GetMinioClient(mb)
-	err := mc.RemoveObject(context.Background(), mb.Bucket, objectName, opts)
-	if err != nil {
-		log.Error(err)
-		return err
+	prefix := fmt.Sprintf("%s/%s", mb.GetDstDir(), backupDirName)
+	lo := minio.ListObjectsOptions{Prefix: prefix, Recursive: true}
+	objectCh := mc.ListObjects(context.Background(), mb.Bucket, lo)
+	for object := range objectCh {
+		if object.Err != nil {
+			log.Errorf("error listing backups in: %s , err: %s ", mb.Id, object.Err)
+			return nil
+		}
+		log.Infof("removing: %s", object.Key)
+		opts := minio.RemoveObjectOptions{GovernanceBypass: false}
+		err := mc.RemoveObject(context.Background(), mb.Bucket, object.Key, opts)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
 	}
 	return nil
 }
 
-func (mb *MinioBucket) RotateBackups(serviceType ServiceType) bool {
-	backups := mb.ScanBucket(serviceType)
+func (mb *MinioBucket) RotateBackups(backups []*Backup) bool {
 	backupCount := len(backups)
 
 	// nothing to rotate when no backups exists
@@ -82,14 +92,18 @@ func (mb *MinioBucket) RotateBackups(serviceType ServiceType) bool {
 	log.Infof("in bucket: %s, max rotation has been reached, rotating...", mb.Id)
 
 	// remove the oldest backup
-	return backups[backupCount-1].remove()
+	oldestBackup := backups[backupCount-1]
+	if err := oldestBackup.Bucket.Remove(oldestBackup.BackupId); err != nil {
+		return false
+	}
+	return true
 }
 
 func (mb *MinioBucket) ScanBucket(serviceType ServiceType) []*Backup {
 	log.Infof("scanning bucket for serviceType: %s", serviceType)
 	var backups []*Backup
-	lo := minio.ListObjectsOptions{Prefix: mb.GetDstDir(), Recursive: true}
 	mc := GetMinioClient(mb)
+	lo := minio.ListObjectsOptions{Prefix: mb.GetDstDir(), Recursive: true}
 	objectCh := mc.ListObjects(context.Background(), mb.Bucket, lo)
 	for object := range objectCh {
 		if object.Err != nil {
