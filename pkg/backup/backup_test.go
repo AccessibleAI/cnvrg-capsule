@@ -48,21 +48,21 @@ var _ = Describe("Backup", func() {
 			It("Test period parsing for seconds", func() {
 				var seconds float64 = 10
 				bucket := initMinioBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "10s", 3)
+				backup := NewBackup(bucket, getPgBackupService(), "10s", 3, "")
 				Expect(seconds).To(Equal(backup.Period))
 			})
 
 			It("Test period parsing for minutes", func() {
 				var seconds float64 = 60
 				bucket := initMinioBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "1m", 3)
+				backup := NewBackup(bucket, getPgBackupService(), "1m", 3, "")
 				Expect(seconds).To(Equal(backup.Period))
 			})
 
 			It("Test period parsing for hours", func() {
 				var seconds float64 = 3600
 				bucket := initMinioBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "1h", 3)
+				backup := NewBackup(bucket, getPgBackupService(), "1h", 3, "")
 				Expect(seconds).To(Equal(backup.Period))
 			})
 		})
@@ -72,7 +72,7 @@ var _ = Describe("Backup", func() {
 			It("Backup request - test period not expired", func() {
 				bucket := initMinioBucket()
 				for i := 0; i < 5; i++ {
-					backup := NewBackup(bucket, getPgBackupService(), "10m", 3)
+					backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
 					_ = backup.createBackupRequest()
 				}
 				Expect(len(bucket.ScanBucket(PgService))).To(Equal(1))
@@ -81,16 +81,16 @@ var _ = Describe("Backup", func() {
 			It("Backup request - test period expired", func() {
 				bucket := initMinioBucket()
 
-				backup := NewBackup(bucket, getPgBackupService(), "1s", 2)
+				backup := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
 				_ = backup.createBackupRequest()
 				time.Sleep(1 * time.Second)
-				backup = NewBackup(bucket, getPgBackupService(), "1s", 2)
+				backup = NewBackup(bucket, getPgBackupService(), "1s", 2, "")
 				_ = backup.createBackupRequest()
 				time.Sleep(1 * time.Second)
-				backup = NewBackup(bucket, getPgBackupService(), "1s", 2)
+				backup = NewBackup(bucket, getPgBackupService(), "1s", 2, "")
 				_ = backup.createBackupRequest()
 				time.Sleep(1 * time.Second)
-				backup = NewBackup(bucket, getPgBackupService(), "1s", 2)
+				backup = NewBackup(bucket, getPgBackupService(), "1s", 2, "")
 				_ = backup.createBackupRequest()
 				time.Sleep(1 * time.Second)
 
@@ -107,7 +107,7 @@ var _ = Describe("Backup", func() {
 
 			It("Test simple PostgreSQL backup", func() {
 				bucket := initMinioBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "10m", 3)
+				backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
 				_ = backup.createBackupRequest()
 				backups := bucket.ScanBucket(PgService)
 				Expect(len(backups)).To(Equal(1))
@@ -118,7 +118,7 @@ var _ = Describe("Backup", func() {
 				tableName := "auto_tests_minio"
 				bucket := initMinioBucket()
 
-				backup := NewBackup(bucket, getPgBackupService(), "10m", 3)
+				backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
 				execSql(fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
 				execSql(fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
 				_ = backup.createBackupRequest()
@@ -143,15 +143,15 @@ var _ = Describe("Backup", func() {
 			It("Test rotation Minio bucket", func() {
 				bucket := initMinioBucket()
 
-				backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2)
+				backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
 				_ = backup0.createBackupRequest()
 				time.Sleep(1 * time.Second)
 
-				backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2)
+				backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
 				_ = backup1.createBackupRequest()
 				time.Sleep(1 * time.Second)
 
-				backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2)
+				backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
 				_ = backup2.createBackupRequest()
 
 				backups := bucket.ScanBucket(PgService)

@@ -150,7 +150,8 @@ func (mb *MinioBucket) UploadFile(path, objectName string) error {
 		return err
 	}
 	mc := GetMinioClient(mb)
-	uploadInfo, err := mc.PutObject(context.Background(), mb.Bucket, objectName, file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
+	fullObjectName := fmt.Sprintf("%s/%s", mb.GetDstDir(), objectName)
+	uploadInfo, err := mc.PutObject(context.Background(), mb.Bucket, fullObjectName, file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
 	if err != nil {
 		log.Error(err)
 		return err

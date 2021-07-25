@@ -23,6 +23,7 @@ type Backup struct {
 	ServiceType ServiceType `json:"serviceType"`
 	Service     Service     `json:"service"`
 	Status      Status      `json:"status"`
+	CnvrgAppRef string      `json:"cnvrgAppRef"`
 }
 
 var (
@@ -31,99 +32,6 @@ var (
 	BucketsToWatchChan = make(chan Bucket, 100)
 	activeBackups      = map[string]bool{}
 )
-
-func Run() {
-	log.Info("starting backup service...")
-	go discoverBackups()
-	go discoverCnvrgAppBackupBucketConfiguration(BucketsToWatchChan)
-	go scanBucketForBackupRequests(BucketsToWatchChan)
-}
-
-func discoverBackups() {
-	//if auto-discovery is true
-	if viper.GetBool("auto-discovery") {
-		for {
-			// get all cnvrg apps
-			apps := k8s.GetCnvrgApps()
-			for _, app := range apps.Items {
-
-				// make sure backups enabled
-				if !ShouldBackup(app) {
-					continue // backup not required, either backup disabled or the ns is blocked for backups
-				}
-
-				// discover PG backups
-				_ = discoverPgBackups(app)
-
-			}
-			time.Sleep(60 * time.Second)
-		}
-	}
-}
-
-func discoverPgBackups(app v1.CnvrgApp) error {
-
-	//discover pg creds
-	pgCreds, err := NewPgCredsWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.CredsRef, app.Namespace)
-	if err != nil {
-		return err
-	}
-	// discover destination bucket
-	bucket, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
-	if err != nil {
-		return err
-	}
-	// create backup request
-	period := app.Spec.Dbs.Pg.Backup.Period
-	rotation := app.Spec.Dbs.Pg.Backup.Rotation
-	pgBackupService := NewPgBackupService(*pgCreds)
-	backup := NewBackup(bucket, pgBackupService, period, rotation)
-	if err := backup.createBackupRequest(); err != nil {
-		log.Errorf("error creating backup request, err: %s", err)
-		return err
-	}
-	return nil
-}
-
-func GetBackupBuckets() (bucket []Bucket) {
-	apps := k8s.GetCnvrgApps()
-	for _, app := range apps.Items {
-		// make sure backups enabled
-		if !ShouldBackup(app) {
-			continue // backup not required, either backup disabled or the ns is blocked for backups
-		}
-		// discover destination bucket
-		b, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
-		if err != nil {
-			log.Errorf("error discovering backup bucket, err: %s", err)
-			continue
-		}
-		bucket = append(bucket, b)
-	}
-	return bucket
-}
-
-func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
-
-	if viper.GetBool("auto-discovery") { // auto-discovery is true
-		for {
-			for _, b := range GetBackupBuckets() {
-				bc <- b
-			}
-			time.Sleep(10 * time.Second)
-		}
-	}
-}
-
-func scanBucketForBackupRequests(bb <-chan Bucket) {
-	for bucket := range bb {
-		pgBackups := bucket.ScanBucket(PgService)
-		bucket.RotateBackups(pgBackups)
-		for _, pgBackup := range bucket.ScanBucket(PgService) {
-			go pgBackup.backup()
-		}
-	}
-}
 
 func (pb *Backup) Jsonify() (string, error) {
 	jsonStr, err := json.Marshal(pb)
@@ -370,7 +278,14 @@ func (pb *Backup) setStatusAndSyncState(s Status) error {
 	return nil
 }
 
-func NewBackup(bucket Bucket, backupService Service, period string, rotation int) *Backup {
+func Run() {
+	log.Info("starting backup service...")
+	go discoverBackups()
+	go discoverCnvrgAppBackupBucketConfiguration(BucketsToWatchChan)
+	go scanBucketForBackupRequests(BucketsToWatchChan)
+}
+
+func NewBackup(bucket Bucket, backupService Service, period string, rotation int, cnvrgAppRef string) *Backup {
 	b := &Backup{
 		BackupId:    fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
 		Bucket:      bucket,
@@ -380,9 +295,96 @@ func NewBackup(bucket Bucket, backupService Service, period string, rotation int
 		Service:     backupService,
 		Period:      getPeriodInSeconds(period),
 		Rotation:    rotation,
+		CnvrgAppRef: cnvrgAppRef,
 	}
 	log.Debugf("new backup initiated: %#v", b)
 	return b
+}
+
+func GetBackupBuckets() (bucket []Bucket) {
+	apps := k8s.GetCnvrgApps()
+	for _, app := range apps.Items {
+		// make sure backups enabled
+		if !ShouldBackup(app) {
+			continue // backup not required, either backup disabled or the ns is blocked for backups
+		}
+		// discover destination bucket
+		b, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+		if err != nil {
+			log.Errorf("error discovering backup bucket, err: %s", err)
+			continue
+		}
+		bucket = append(bucket, b)
+	}
+	return bucket
+}
+
+func discoverBackups() {
+	//if auto-discovery is true
+	if viper.GetBool("auto-discovery") {
+		for {
+			// get all cnvrg apps
+			apps := k8s.GetCnvrgApps()
+			for _, app := range apps.Items {
+
+				// make sure backups enabled
+				if !ShouldBackup(app) {
+					continue // backup not required, either backup disabled or the ns is blocked for backups
+				}
+
+				// discover PG backups
+				_ = discoverPgBackups(app)
+
+			}
+			time.Sleep(60 * time.Second)
+		}
+	}
+}
+
+func discoverPgBackups(app v1.CnvrgApp) error {
+
+	//discover pg creds
+	pgCreds, err := NewPgCredsWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.CredsRef, app.Namespace)
+	if err != nil {
+		return err
+	}
+	// discover destination bucket
+	bucket, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+	if err != nil {
+		return err
+	}
+	// create backup request
+	period := app.Spec.Dbs.Pg.Backup.Period
+	rotation := app.Spec.Dbs.Pg.Backup.Rotation
+	pgBackupService := NewPgBackupService(*pgCreds)
+	backup := NewBackup(bucket, pgBackupService, period, rotation, cnvrgAppRef(app))
+	if err := backup.createBackupRequest(); err != nil {
+		log.Errorf("error creating backup request, err: %s", err)
+		return err
+	}
+	return nil
+}
+
+func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
+
+	if viper.GetBool("auto-discovery") { // auto-discovery is true
+		for {
+			for _, b := range GetBackupBuckets() {
+				bc <- b
+			}
+			time.Sleep(10 * time.Second)
+		}
+	}
+}
+
+func scanBucketForBackupRequests(bb <-chan Bucket) {
+	for bucket := range bb {
+		pgBackups := bucket.ScanBucket(PgService)
+		bucket.RotateBackups(pgBackups)
+		for _, pgBackup := range bucket.ScanBucket(PgService) {
+			go pgBackup.backup()
+		}
+	}
 }
 
 func getPeriodInSeconds(period string) float64 {
@@ -401,6 +403,10 @@ func getPeriodInSeconds(period string) float64 {
 	}
 	log.Fatalf("period worng format, must be on of the [Xs, Xm, Xh]: %s", err)
 	return n
+}
+
+func cnvrgAppRef(app v1.CnvrgApp) string {
+	return fmt.Sprintf("%s/%s", app.Namespace, app.Name)
 }
 
 //func (b *Bucket) getMinioClient() *minio.Client {
