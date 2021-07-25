@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v4"
-
-	//"github.com/jackc/pgx/v4"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
@@ -95,7 +93,7 @@ var _ = Describe("Backup", func() {
 				backup = NewBackup(bucket, getPgBackupService(), "1s", 2)
 				_ = backup.createBackupRequest()
 				time.Sleep(1 * time.Second)
-				
+
 				Expect(len(bucket.ScanBucket(PgService))).To(Equal(3))
 			})
 		})

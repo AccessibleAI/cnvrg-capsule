@@ -3,8 +3,10 @@ package backup
 import (
 	"bufio"
 	"fmt"
+	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/spf13/viper"
+	"k8s.io/apimachinery/pkg/types"
 	"os/exec"
 	"strings"
 )
@@ -88,20 +90,20 @@ func (pgs *PgBackupService) UploadBackupAssets(bucket Bucket) error {
 	return bucket.UploadFile(pgs.DumpfileLocalPath(), pgs.DumpfileName())
 }
 
-func (pgs *PgBackupService) CredsAutoDiscovery(credsRef, ns string) error {
-	//n := types.NamespacedName{Namespace: ns, Name: credsRef}
-	//pgSecret := k8s.GetSecret(n)
-	//if err := validatePgCreds(n.Name, pgSecret.Data); err != nil {
-	//	log.Errorf("pg creds secret invalid, err: %s", err)
-	//	return err
-	//}
-	return nil
-	//return &PgCreds{
-	//	Host:   fmt.Sprintf("%s.%s", pgSecret.Data["POSTGRES_HOST"], ns),
-	//	DbName: string(pgSecret.Data["POSTGRES_DB"]),
-	//	User:   string(pgSecret.Data["POSTGRES_USER"]),
-	//	Pass:   string(pgSecret.Data["POSTGRES_PASSWORD"]),
-	//}, nil
+func NewPgCredsWithAutoDiscovery(credsRef, ns string) (*PgCreds, error) {
+	n := types.NamespacedName{Namespace: ns, Name: credsRef}
+	pgSecret := k8s.GetSecret(n)
+	if err := validatePgCreds(n.Name, pgSecret.Data); err != nil {
+		log.Errorf("pg creds secret invalid, err: %s", err)
+		return nil, err
+	}
+
+	return &PgCreds{
+		Host:   fmt.Sprintf("%s.%s", pgSecret.Data["POSTGRES_HOST"], ns),
+		DbName: string(pgSecret.Data["POSTGRES_DB"]),
+		User:   string(pgSecret.Data["POSTGRES_USER"]),
+		Pass:   string(pgSecret.Data["POSTGRES_PASSWORD"]),
+	}, nil
 }
 
 func NewPgBackupService(creds PgCreds) *PgBackupService {

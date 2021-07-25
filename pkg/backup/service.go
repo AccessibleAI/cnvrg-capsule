@@ -8,5 +8,4 @@ type Service interface {
 	DumpfileLocalPath() string
 	ServiceType() ServiceType
 	UploadBackupAssets(bucket Bucket) error
-	CredsAutoDiscovery(credsRef, ns string) error
 }
