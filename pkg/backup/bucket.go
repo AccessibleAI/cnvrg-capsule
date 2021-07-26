@@ -71,6 +71,14 @@ func NewBucketWithAutoDiscovery(credsRef, ns string) (Bucket, error) {
 				""), nil
 		}
 	}
+	if bucketType == AzureBucketType {
+		return NewAzureBucket(
+			string(bucketSecret.Data["CNVRG_STORAGE_AZURE_ACCOUNT_NAME"]),
+			string(bucketSecret.Data["CNVRG_STORAGE_AZURE_ACCESS_KEY"]),
+			string(bucketSecret.Data["CNVRG_STORAGE_AZURE_CONTAINER"]),
+			"",
+		), nil
+	}
 
 	err := &UnsupportedBucketError{}
 	log.Error(err)
