@@ -7,5 +7,6 @@ type Service interface {
 	DumpfileName() string
 	DumpfileLocalPath() string
 	ServiceType() ServiceType
-	UploadBackupAssets(bucket Bucket, backupId string) error
+	UploadBackupAssets(bucket Bucket, id string) error
+	DownloadBackupAssets(bucket Bucket, id string) error
 }

@@ -86,9 +86,14 @@ func (pgs *PgBackupService) DumpfileName() string {
 	return pgs.Dumpfile
 }
 
-func (pgs *PgBackupService) UploadBackupAssets(bucket Bucket, uploadId string) error {
-	objectName := fmt.Sprintf("%s/%s", uploadId, pgs.Dumpfile)
+func (pgs *PgBackupService) UploadBackupAssets(bucket Bucket, id string) error {
+	objectName := fmt.Sprintf("%s/%s", id, pgs.Dumpfile)
 	return bucket.UploadFile(pgs.DumpfileLocalPath(), objectName)
+}
+
+func (pgs *PgBackupService) DownloadBackupAssets(bucket Bucket, id string) error {
+	objectName := fmt.Sprintf("%s/%s", id, pgs.Dumpfile)
+	return bucket.DownloadFile(objectName, pgs.DumpfileLocalPath())
 }
 
 func NewPgCredsWithAutoDiscovery(credsRef, ns string) (*PgCreds, error) {

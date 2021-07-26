@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v4"
+	"github.com/lithammer/shortuuid/v3"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	. "github.com/onsi/ginkgo"
@@ -43,293 +44,133 @@ var _ = Describe("Backup", func() {
 	})
 
 	Describe("Backup testing", func() {
-
-		Context("Test period parsing ", func() {
-
+		Context("Minio bucket", func() {
+			testBucket := initMinioBucket
 			It("Test period parsing for seconds", func() {
-				var seconds float64 = 10
-				bucket := initMinioBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "10s", 3, "")
-				Expect(seconds).To(Equal(backup.Period))
+				testPeriodParsingForSeconds(testBucket())
 			})
 
 			It("Test period parsing for minutes", func() {
-				var seconds float64 = 60
-				bucket := initMinioBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "1m", 3, "")
-				Expect(seconds).To(Equal(backup.Period))
+				testPeriodParsingForMinutes(testBucket())
 			})
 
 			It("Test period parsing for hours", func() {
-				var seconds float64 = 3600
-				bucket := initMinioBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "1h", 3, "")
-				Expect(seconds).To(Equal(backup.Period))
+				testPeriodParsingForHours(testBucket())
 			})
-		})
-
-		Context("Test period limits", func() {
 
 			It("Backup request - test period not expired", func() {
-				bucket := initMinioBucket()
-				for i := 0; i < 5; i++ {
-					backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
-					_ = backup.createBackupRequest()
-				}
-				Expect(len(bucket.ScanBucket(PgService))).To(Equal(1))
+				testPeriodNotExpired(testBucket())
 			})
 
 			It("Backup request - test period expired", func() {
-				bucket := initMinioBucket()
-
-				backup := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup.createBackupRequest()
-				time.Sleep(1 * time.Second)
-				backup = NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup.createBackupRequest()
-				time.Sleep(1 * time.Second)
-				backup = NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup.createBackupRequest()
-				time.Sleep(1 * time.Second)
-				backup = NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup.createBackupRequest()
-				time.Sleep(1 * time.Second)
-
-				Expect(len(bucket.ScanBucket(PgService))).To(Equal(3))
+				testPeriodExpired(testBucket())
 			})
-		})
 
-		Context("Minio bucket", func() {
-
-			It("Test minio ping", func() {
-				bucket := initMinioBucket()
-				Expect(bucket.Ping()).To(BeNil())
+			It("Test bucket ping", func() {
+				testBucketPing(testBucket())
 			})
 
 			It("Test simple PostgreSQL backup", func() {
-				bucket := initMinioBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
-				_ = backup.createBackupRequest()
-				backups := bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(1))
-				Expect(backup.backup()).To(BeNil())
+				testSimplePostgreSQLBackup(testBucket())
 			})
 
 			It("Test backup with restore", func() {
-				tableName := "auto_tests_minio"
-				bucket := initMinioBucket()
-
-				backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
-				execSql(fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
-				execSql(fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
-				_ = backup.createBackupRequest()
-				backups := bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(1))
-				Expect(backup.backup()).To(BeNil())
-				execSql(fmt.Sprintf("drop table %s;", tableName))
-
-				args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
-					"--clean",
-					"--create",
-					"--exit-on-error",
-					"--format=t",
-					backup.Service.DumpfileLocalPath()}
-				Expect(shellCmd("pg_restore", args)).To(BeNil())
-				foo, bar := validateSqlDataExists(tableName)
-				Expect(foo).To(Equal("foo"))
-				Expect(bar).To(Equal("bar"))
-
+				testBackupWithRestore(testBucket())
 			})
 
-			It("Test rotation of completed backups - Minio bucket", func() {
-				bucket := initMinioBucket()
-
-				backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup0.createBackupRequest()
-				time.Sleep(1 * time.Second)
-
-				backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup1.createBackupRequest()
-				time.Sleep(1 * time.Second)
-
-				backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup2.createBackupRequest()
-
-				backups := bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(3))
-
-				_ = backup0.backup()
-				_ = backup1.backup()
-				_ = backup2.backup()
-
-				backups = bucket.ScanBucket(PgService)
-				Expect(bucket.RotateBackups(backups)).To(BeTrue())
-				backups = bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(2))
-
-				expected := []string{backups[0].BackupId, backups[1].BackupId}
-				shouldBe := []string{backup2.BackupId, backup1.BackupId}
-				Expect(expected).To(Equal(shouldBe))
-
+			It("Test rotation of completed backups", func() {
+				testRotationOfCompletedBackups(testBucket())
 			})
 
-			It("Test rotation of not completed backups - Minio bucket", func() {
-				bucket := initMinioBucket()
-
-				backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup0.createBackupRequest()
-				time.Sleep(1 * time.Second)
-
-				backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup1.createBackupRequest()
-				time.Sleep(1 * time.Second)
-
-				backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup2.createBackupRequest()
-
-				backups := bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(3))
-
-				backups = bucket.ScanBucket(PgService)
-				Expect(bucket.RotateBackups(backups)).To(BeFalse())
-
-				backups = bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(3))
-
+			It("Test rotation of not completed backups", func() {
+				testRotationOfNOtCompletedBackups(testBucket())
 			})
 		})
 
-		Context("AWS S3 bucket", func() {
-
-			It("Test simple backup (AWS S3)", func() {
-				bucket := initAwsBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
-				_ = backup.createBackupRequest()
-				backups := bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(1))
-				Expect(backup.backup()).To(BeNil())
+		Context("Amazon bucket", func() {
+			testBucket := initAwsBucket
+			It("Test period parsing for seconds", func() {
+				testPeriodParsingForSeconds(testBucket())
 			})
 
-			It("Test backup with restore (AWS S3)", func() {
-				tableName := "auto_tests_aws_s3"
-				bucket := initAwsBucket()
-				backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
-				execSql(fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
-				execSql(fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
-				_ = backup.createBackupRequest()
-				backups := bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(1))
-				Expect(backup.backup()).To(BeNil())
-				execSql(fmt.Sprintf("drop table %s;", tableName))
-
-				args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
-					"--clean",
-					"--create",
-					"--exit-on-error",
-					"--format=t",
-					backup.Service.DumpfileLocalPath()}
-				Expect(shellCmd("pg_restore", args)).To(BeNil())
-				foo, bar := validateSqlDataExists(tableName)
-				Expect(foo).To(Equal("foo"))
-				Expect(bar).To(Equal("bar"))
-
+			It("Test period parsing for minutes", func() {
+				testPeriodParsingForMinutes(testBucket())
 			})
 
-			It("Test rotation AWS S3 backup", func() {
-				bucket := initAwsBucket()
+			It("Test period parsing for hours", func() {
+				testPeriodParsingForHours(testBucket())
+			})
 
-				backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup0.createBackupRequest()
-				time.Sleep(1 * time.Second)
+			It("Backup request - test period not expired", func() {
+				testPeriodNotExpired(testBucket())
+			})
 
-				backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup1.createBackupRequest()
-				time.Sleep(1 * time.Second)
+			It("Backup request - test period expired", func() {
+				testPeriodExpired(testBucket())
+			})
 
-				backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
-				_ = backup2.createBackupRequest()
+			It("Test bucket ping", func() {
+				testBucketPing(testBucket())
+			})
 
-				backups := bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(3))
+			It("Test simple PostgreSQL backup", func() {
+				testSimplePostgreSQLBackup(testBucket())
+			})
 
-				_ = backup0.backup()
-				_ = backup1.backup()
-				_ = backup2.backup()
+			It("Test backup with restore", func() {
+				testBackupWithRestore(testBucket())
+			})
 
-				backups = bucket.ScanBucket(PgService)
-				Expect(bucket.RotateBackups(backups)).To(BeTrue())
+			It("Test rotation of completed backups", func() {
+				testRotationOfCompletedBackups(testBucket())
+			})
 
-				backups = bucket.ScanBucket(PgService)
-				Expect(len(backups)).To(Equal(2))
-				expected := []string{backups[0].BackupId, backups[1].BackupId}
-				shouldBe := []string{backup2.BackupId, backup1.BackupId}
-				Expect(expected).To(Equal(shouldBe))
-
+			It("Test rotation of not completed backups", func() {
+				testRotationOfNOtCompletedBackups(testBucket())
 			})
 		})
-		Context("Azure S3 bucket", func() {
 
-			//It("Test simple backup (Azure S3)", func() {
-			//	bucket := initAzureBucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-			//	_ = backup.createBackupRequest()
-			//	backups := bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(1))
-			//	Expect(backup.backup()).To(BeNil())
-			//})
+		Context("Azure bucket", func() {
+			testBucket := initAzureBucket
+			It("Test period parsing for seconds", func() {
+				testPeriodParsingForSeconds(testBucket())
+			})
 
-			//It("Test backup with restore (AWS S3)", func() {
-			//	tableName := "auto_tests_aws_s3"
-			//	bucket := initS3Bucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//	backup := NewPgBackup("my-prefix", "10m", 3, bucket, pgCreds)
-			//	execSql(*backup, fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
-			//	execSql(*backup, fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
-			//	_ = backup.createBackupRequest()
-			//	backups := bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(1))
-			//	Expect(backup.backup()).To(BeNil())
-			//	execSql(*backup, fmt.Sprintf("drop table %s;", tableName))
-			//
-			//	args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
-			//		"--clean",
-			//		"--create",
-			//		"--exit-on-error",
-			//		"--format=t",
-			//		backup.LocalDumpPath}
-			//	Expect(shellCmd("pg_restore", args)).To(BeNil())
-			//	foo, bar := validateSqlDataExists(*backup, tableName)
-			//	Expect(foo).To(Equal("foo"))
-			//	Expect(bar).To(Equal("bar"))
-			//
-			//})
-			//
-			//It("Test rotation AWS S3 backup", func() {
-			//	bucket := initS3Bucket()
-			//	pgCreds := PgCreds{Host: "127.0.0.1", DbName: "cnvrg", User: "cnvrg", Pass: "cnvrg"}
-			//
-			//	backup0 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-			//	_ = backup0.createBackupRequest()
-			//	time.Sleep(1 * time.Second)
-			//
-			//	backup1 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-			//	_ = backup1.createBackupRequest()
-			//	time.Sleep(1 * time.Second)
-			//
-			//	backup2 := NewPgBackup("my-prefix", "1s", 2, bucket, pgCreds)
-			//	_ = backup2.createBackupRequest()
-			//	backups := bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(3))
-			//	Expect(bucket.rotateBackups()).To(BeTrue())
-			//	backups = bucket.ScanBucket()
-			//	Expect(len(backups)).To(Equal(2))
-			//	expected := []string{backups[0].BackupId, backups[1].BackupId}
-			//	shouldBe := []string{backup2.BackupId, backup1.BackupId}
-			//	Expect(expected).To(Equal(shouldBe))
-			//
-			//})
+			It("Test period parsing for minutes", func() {
+				testPeriodParsingForMinutes(testBucket())
+			})
 
+			It("Test period parsing for hours", func() {
+				testPeriodParsingForHours(testBucket())
+			})
+
+			It("Backup request - test period not expired", func() {
+				testPeriodNotExpired(testBucket())
+			})
+
+			It("Backup request - test period expired", func() {
+				testPeriodExpired(testBucket())
+			})
+
+			It("Test bucket ping", func() {
+				testBucketPing(testBucket())
+			})
+
+			It("Test simple PostgreSQL backup", func() {
+				testSimplePostgreSQLBackup(testBucket())
+			})
+
+			It("Test backup with restore", func() {
+				testBackupWithRestore(testBucket())
+			})
+
+			It("Test rotation of completed backups", func() {
+				testRotationOfCompletedBackups(testBucket())
+			})
+
+			It("Test rotation of not completed backups", func() {
+				testRotationOfNOtCompletedBackups(testBucket())
+			})
 		})
 	})
 })
@@ -447,37 +288,20 @@ func initAwsBucket() *MinioBucket {
 		bn,
 
 	)
-	//return Bucket{
-	//	Id:         bn,
-	//	Endpoint:   "",
-	//	Region:     "us-east-2",
-	//	AccessKey:  os.Getenv("AWS_ACCESS_KEY"),
-	//	SecretKey:  os.Getenv("AWS_SECRET_KEY"),
-	//	UseSSL:     true,
-	//	Bucket:     "cnvrg-capsule-test-bucket",
-	//	DstDir:     bn,
-	//	BucketType: AwsBucket,
-	//}
 }
 
-//
-//func initAzureBucket() Bucket {
-//	bn, _ := shortid.Generate()
-//	bn = strings.ReplaceAll(strings.ToLower(bn), "-", "z")
-//	bn = strings.ReplaceAll(bn, "_", "z")
-//	return Bucket{
-//		Id:         bn,
-//		Endpoint:   "",
-//		Region:     "",
-//		AccessKey:  os.Getenv("AZURE_ACCESS_KEY"),
-//		SecretKey:  os.Getenv("AZURE_SECRET_KEY"),
-//		UseSSL:     true,
-//		Bucket:     "jenkins",
-//		DstDir:     bn,
-//		BucketType: AzureBucket,
-//	}
-//}
-//
+func initAzureBucket() Bucket {
+	bn, _ := shortid.Generate()
+	bn = strings.ReplaceAll(strings.ToLower(bn), "-", "z")
+	bn = strings.ReplaceAll(bn, "_", "z")
+	return NewAzureBucket(
+		os.Getenv("AZURE_ACCOUNT_NAME"),
+		os.Getenv("AZURE_ACCOUNT_KEY"),
+		"jenkins",
+		bn,
+	)
+
+}
 
 func execSql(sql string) {
 	dbUrl := fmt.Sprintf("postgres://%s:%s@%s:5432/%s", pgCreds.User, pgCreds.Pass, pgCreds.Host, pgCreds.DbName)
@@ -512,4 +336,139 @@ func validateSqlDataExists(tableName string) (foo, bar string) {
 
 func getPgBackupService() *PgBackupService {
 	return NewPgBackupService(pgCreds)
+}
+
+func testPeriodParsingForSeconds(bucket Bucket) {
+	var seconds float64 = 10
+	backup := NewBackup(bucket, getPgBackupService(), "10s", 3, "")
+	Expect(seconds).To(Equal(backup.Period))
+}
+
+func testPeriodParsingForMinutes(bucket Bucket) {
+	var seconds float64 = 60
+	backup := NewBackup(bucket, getPgBackupService(), "1m", 3, "")
+	Expect(seconds).To(Equal(backup.Period))
+}
+
+func testPeriodParsingForHours(bucket Bucket) {
+	var seconds float64 = 3600
+	backup := NewBackup(bucket, getPgBackupService(), "1h", 3, "")
+	Expect(seconds).To(Equal(backup.Period))
+}
+
+func testPeriodNotExpired(bucket Bucket) {
+	for i := 0; i < 5; i++ {
+		backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
+		_ = backup.createBackupRequest()
+	}
+	Expect(len(bucket.ScanBucket(PgService))).To(Equal(1))
+}
+
+func testPeriodExpired(bucket Bucket) {
+
+	backup := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup.createBackupRequest()
+	time.Sleep(1 * time.Second)
+	backup = NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup.createBackupRequest()
+	time.Sleep(1 * time.Second)
+	backup = NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup.createBackupRequest()
+	time.Sleep(1 * time.Second)
+	backup = NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup.createBackupRequest()
+	time.Sleep(1 * time.Second)
+
+	Expect(len(bucket.ScanBucket(PgService))).To(Equal(3))
+}
+
+func testBucketPing(bucket Bucket) {
+	Expect(bucket.Ping()).To(BeNil())
+}
+
+func testSimplePostgreSQLBackup(bucket Bucket) {
+	backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
+	_ = backup.createBackupRequest()
+	backups := bucket.ScanBucket(PgService)
+	Expect(len(backups)).To(Equal(1))
+	Expect(backup.backup()).To(BeNil())
+}
+
+func testRotationOfCompletedBackups(bucket Bucket) {
+
+	backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup0.createBackupRequest()
+	time.Sleep(1 * time.Second)
+
+	backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup1.createBackupRequest()
+	time.Sleep(1 * time.Second)
+
+	backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup2.createBackupRequest()
+
+	backups := bucket.ScanBucket(PgService)
+	Expect(len(backups)).To(Equal(3))
+
+	_ = backup0.backup()
+	_ = backup1.backup()
+	_ = backup2.backup()
+
+	backups = bucket.ScanBucket(PgService)
+	Expect(rotateBackups(backups)).To(BeTrue())
+	backups = bucket.ScanBucket(PgService)
+	Expect(len(backups)).To(Equal(2))
+
+	expected := []string{backups[0].BackupId, backups[1].BackupId}
+	shouldBe := []string{backup2.BackupId, backup1.BackupId}
+	Expect(expected).To(Equal(shouldBe))
+
+}
+
+func testRotationOfNOtCompletedBackups(bucket Bucket) {
+
+	backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup0.createBackupRequest()
+	time.Sleep(1 * time.Second)
+
+	backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup1.createBackupRequest()
+	time.Sleep(1 * time.Second)
+
+	backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, "")
+	_ = backup2.createBackupRequest()
+
+	backups := bucket.ScanBucket(PgService)
+	Expect(len(backups)).To(Equal(3))
+
+	backups = bucket.ScanBucket(PgService)
+	Expect(rotateBackups(backups)).To(BeFalse())
+
+	backups = bucket.ScanBucket(PgService)
+	Expect(len(backups)).To(Equal(3))
+}
+
+func testBackupWithRestore(bucket Bucket) {
+
+	backup := NewBackup(bucket, getPgBackupService(), "10m", 3, "")
+	tableName := fmt.Sprintf("auto_tests_minio_%s", shortuuid.New())
+	execSql(fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
+	execSql(fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
+	_ = backup.createBackupRequest()
+	backups := bucket.ScanBucket(PgService)
+	Expect(len(backups)).To(Equal(1))
+	Expect(backup.backup()).To(BeNil())
+	execSql(fmt.Sprintf("drop table %s;", tableName))
+	Expect(os.Remove(backup.Service.DumpfileLocalPath())).To(BeNil())
+	Expect(backup.Service.DownloadBackupAssets(backup.Bucket, backup.BackupId)).To(BeNil())
+	args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
+		"--clean",
+		"--create",
+		"--exit-on-error",
+		"--format=t",
+		backup.Service.DumpfileLocalPath()}
+	Expect(shellCmd("pg_restore", args)).To(BeNil())
+	foo, bar := validateSqlDataExists(tableName)
+	Expect(foo).To(Equal("foo"))
+	Expect(bar).To(Equal("bar"))
 }

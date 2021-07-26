@@ -244,13 +244,20 @@ func (pb *Backup) UnmarshalJSON(b []byte) error {
 	}
 
 	// unmarshal bucket
-	if pb.BucketType == MinioBucketType || pb.BucketType == AwsBucketType {
+	if pb.BucketType == MinioBucketType || pb.BucketType == AwsBucketType { // minio or aws bucket
 		mb := MinioBucket{}
 		if err := json.Unmarshal(*objMap["bucket"], &mb); err != nil {
 			log.Error(err)
 			return err
 		}
 		pb.Bucket = &mb
+	} else if pb.BucketType == AzureBucketType { // azure bucket
+		ab := AzureBucket{}
+		if err := json.Unmarshal(*objMap["bucket"], &ab); err != nil {
+			log.Error(err)
+			return err
+		}
+		pb.Bucket = &ab
 	} else {
 		err := &UnsupportedBucketError{}
 		log.Error(err.Error())
@@ -390,11 +397,43 @@ func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
 func scanBucketForBackupRequests(bb <-chan Bucket) {
 	for bucket := range bb {
 		pgBackups := bucket.ScanBucket(PgService)
-		bucket.RotateBackups(pgBackups)
+		rotateBackups(pgBackups)
 		for _, pgBackup := range bucket.ScanBucket(PgService) {
 			go pgBackup.backup()
 		}
 	}
+}
+
+func rotateBackups(backups []*Backup) bool {
+	backupCount := len(backups)
+
+	// nothing to rotate when no backups exists
+	if backupCount == 0 {
+		log.Info("pg backups list is 0, skipping rotation")
+		return false
+	}
+
+	// calculate success backups
+	successBackups := 0
+	for _, backup := range backups {
+		if backup.Status == Finished {
+			successBackups++
+		}
+	}
+
+	// rotation not needed yet
+	if successBackups <= backups[0].Rotation {
+		log.Infof("in bucket: %s, max rotation not reached yet (current: %d), skipping rotation", backups[0].Bucket.BucketId(), backupCount)
+		return false
+	}
+	log.Infof("in bucket: %s, max rotation has been reached, rotating...", backups[0].Bucket.BucketId())
+
+	// remove the oldest backup
+	oldestBackup := backups[backupCount-1]
+	if err := oldestBackup.Bucket.Remove(oldestBackup.BackupId); err != nil {
+		return false
+	}
+	return true
 }
 
 func getPeriodInSeconds(period string) float64 {

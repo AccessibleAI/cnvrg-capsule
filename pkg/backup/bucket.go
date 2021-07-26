@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"fmt"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -14,19 +15,11 @@ type Bucket interface {
 	BucketId() string
 	GetDstDir() string
 	BucketType() BucketType
-	Remove(dirName string) error
-	RotateBackups(backups []*Backup) bool
+	Remove(backupId string) error
+	DownloadFile(objectName, localFile string) error
 	UploadFile(path, objectName string) error
 	ScanBucket(serviceType ServiceType) []*Backup
 	SyncMetadataState(state, objectName string) error
-}
-
-type AzureBucket struct {
-	Id          string `json:"id"`
-	AccountName string `json:"accountName"`
-	AccountKey  string `json:"accountKey"`
-	Bucket      string `json:"bucket"`
-	DstDir      string `json:"dstDir"`
 }
 
 const (
@@ -38,8 +31,7 @@ const (
 
 	Indexfile string = "indexfile.json"
 
-	AzureBucketType BucketType = "azure"
-	GcpBucket       BucketType = "gcp"
+	GcpBucket BucketType = "gcp"
 )
 
 func NewBucketWithAutoDiscovery(credsRef, ns string) (Bucket, error) {
@@ -85,9 +77,13 @@ func NewBucketWithAutoDiscovery(credsRef, ns string) (Bucket, error) {
 	return nil, err
 }
 
-func setDefaultDestinationDir(dstDir string) string {
+func getDestinationDir(dstDir string) string {
 	if dstDir == "" {
 		return "cnvrg-smart-backups"
 	}
 	return dstDir
+}
+
+func getBucketId(bucketType BucketType, endpoint, bucket string) string {
+	return fmt.Sprintf("%s-%s-%s", bucketType, endpoint, bucket)
 }

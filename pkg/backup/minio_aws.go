@@ -9,6 +9,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/teris-io/shortid"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -33,12 +34,12 @@ type MinioBucket struct {
 	DstDir    string `json:"dstDir"`
 }
 
-func (mb *MinioBucket) SyncMetadataState(state, objectName string) error {
-	mc := GetMinioClient(mb)
+func (m *MinioBucket) SyncMetadataState(state, objectName string) error {
+	mc := GetMinioClient(m)
 	po := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	f := strings.NewReader(state)
-	fullObjectName := fmt.Sprintf("%s/%s", mb.GetDstDir(), objectName)
-	_, err := mc.PutObject(context.Background(), mb.Bucket, fullObjectName, f, f.Size(), po)
+	fullObjectName := fmt.Sprintf("%s/%s", m.GetDstDir(), objectName)
+	_, err := mc.PutObject(context.Background(), m.Bucket, fullObjectName, f, f.Size(), po)
 	if err != nil {
 		log.Errorf("error saving object: %s to S3, err: %s", objectName, err)
 		return err
@@ -47,31 +48,28 @@ func (mb *MinioBucket) SyncMetadataState(state, objectName string) error {
 	return nil
 }
 
-func (mb *MinioBucket) GetDstDir() string {
-	if mb.DstDir == "" {
-		return "cnvrg-smart-backups"
-	}
-	return mb.DstDir
+func (m *MinioBucket) GetDstDir() string {
+	return getDestinationDir(m.DstDir)
 }
 
-func (mb *MinioBucket) BucketId() string {
-	return mb.Id
+func (m *MinioBucket) BucketId() string {
+	return m.Id
 }
 
-func (mb *MinioBucket) Remove(backupDirName string) error {
+func (m *MinioBucket) Remove(backupId string) error {
 
-	mc := GetMinioClient(mb)
-	prefix := fmt.Sprintf("%s/%s", mb.GetDstDir(), backupDirName)
+	mc := GetMinioClient(m)
+	prefix := fmt.Sprintf("%s/%s", m.GetDstDir(), backupId)
 	lo := minio.ListObjectsOptions{Prefix: prefix, Recursive: true}
-	objectCh := mc.ListObjects(context.Background(), mb.Bucket, lo)
+	objectCh := mc.ListObjects(context.Background(), m.Bucket, lo)
 	for object := range objectCh {
 		if object.Err != nil {
-			log.Errorf("error listing backups in: %s , err: %s ", mb.Id, object.Err)
+			log.Errorf("error listing backups in: %s , err: %s ", m.Id, object.Err)
 			return nil
 		}
 		log.Infof("removing: %s", object.Key)
 		opts := minio.RemoveObjectOptions{GovernanceBypass: false}
-		err := mc.RemoveObject(context.Background(), mb.Bucket, object.Key, opts)
+		err := mc.RemoveObject(context.Background(), m.Bucket, object.Key, opts)
 		if err != nil {
 			log.Error(err)
 			return err
@@ -80,52 +78,20 @@ func (mb *MinioBucket) Remove(backupDirName string) error {
 	return nil
 }
 
-func (mb *MinioBucket) RotateBackups(backups []*Backup) bool {
-	backupCount := len(backups)
-
-	// nothing to rotate when no backups exists
-	if backupCount == 0 {
-		log.Infof("in bucket: %s, pg backups list is 0, skipping rotation", mb.Id)
-		return false
-	}
-
-	// calculate success backups
-	successBackups := 0
-	for _, backup := range backups {
-		if backup.Status == Finished {
-			successBackups++
-		}
-	}
-
-	// rotation not needed yet
-	if successBackups <= backups[0].Rotation {
-		log.Infof("in bucket: %s, max rotation not reached yet (current: %d), skipping rotation", mb.Id, backupCount)
-		return false
-	}
-	log.Infof("in bucket: %s, max rotation has been reached, rotating...", mb.Id)
-
-	// remove the oldest backup
-	oldestBackup := backups[backupCount-1]
-	if err := oldestBackup.Bucket.Remove(oldestBackup.BackupId); err != nil {
-		return false
-	}
-	return true
-}
-
-func (mb *MinioBucket) ScanBucket(serviceType ServiceType) []*Backup {
+func (m *MinioBucket) ScanBucket(serviceType ServiceType) []*Backup {
 	log.Infof("scanning bucket for serviceType: %s", serviceType)
 	var backups []*Backup
-	mc := GetMinioClient(mb)
-	lo := minio.ListObjectsOptions{Prefix: mb.GetDstDir(), Recursive: true}
-	objectCh := mc.ListObjects(context.Background(), mb.Bucket, lo)
+	mc := GetMinioClient(m)
+	lo := minio.ListObjectsOptions{Prefix: m.GetDstDir(), Recursive: true}
+	objectCh := mc.ListObjects(context.Background(), m.Bucket, lo)
 	for object := range objectCh {
 		if object.Err != nil {
-			log.Errorf("error listing backups in: %s , err: %s ", mb.Id, object.Err)
+			log.Errorf("error listing backups in: %s , err: %s ", m.Id, object.Err)
 			return nil
 		}
 		// only index files required for bucket scan
 		if strings.Contains(object.Key, Indexfile) {
-			stream, err := mc.GetObject(context.Background(), mb.Bucket, object.Key, minio.GetObjectOptions{})
+			stream, err := mc.GetObject(context.Background(), m.Bucket, object.Key, minio.GetObjectOptions{})
 			if err != nil {
 				log.Errorf("can't get object: %s, err: %s", object.Key, err)
 				continue
@@ -149,7 +115,7 @@ func (mb *MinioBucket) ScanBucket(serviceType ServiceType) []*Backup {
 	return backups
 }
 
-func (mb *MinioBucket) UploadFile(path, objectName string) error {
+func (m *MinioBucket) UploadFile(path, objectName string) error {
 
 	file, err := os.Open(path)
 	if err != nil {
@@ -162,9 +128,9 @@ func (mb *MinioBucket) UploadFile(path, objectName string) error {
 		log.Errorf("can't open dump file: %s, err: %s", path, err)
 		return err
 	}
-	mc := GetMinioClient(mb)
-	fullObjectName := fmt.Sprintf("%s/%s", mb.GetDstDir(), objectName)
-	uploadInfo, err := mc.PutObject(context.Background(), mb.Bucket, fullObjectName, file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
+	mc := GetMinioClient(m)
+	fullObjectName := fmt.Sprintf("%s/%s", m.GetDstDir(), objectName)
+	uploadInfo, err := mc.PutObject(context.Background(), m.Bucket, fullObjectName, file, fileStat.Size(), minio.PutObjectOptions{ContentType: "application/octet-stream"})
 	if err != nil {
 		log.Error(err)
 		return err
@@ -173,14 +139,36 @@ func (mb *MinioBucket) UploadFile(path, objectName string) error {
 	return nil
 }
 
-func (mb *MinioBucket) Ping() error {
-	expectedHash, _ := shortid.Generate()
-	if err := mb.SyncMetadataState(expectedHash, "ping"); err != nil {
+func (m *MinioBucket) DownloadFile(objectName, localFile string) error {
+	log.Infof("downloading %s into %s", objectName, localFile)
+	mc := GetMinioClient(m)
+	fullObjectName := fmt.Sprintf("%s/%s", m.GetDstDir(), objectName)
+	stream, err := mc.GetObject(context.Background(), m.Bucket, fullObjectName, minio.GetObjectOptions{})
+	if err != nil {
+		log.Error(err)
 		return err
 	}
-	mc := GetMinioClient(mb)
-	objectName := fmt.Sprintf("%s/ping", mb.GetDstDir())
-	stream, err := mc.GetObject(context.Background(), mb.Bucket, objectName, minio.GetObjectOptions{})
+	file, err := os.Create(localFile)
+	if err != nil {
+		log.Errorf("can't open dump file: %s, err: %s", localFile, err)
+		return err
+	}
+	_, err = io.Copy(file, stream)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	return nil
+}
+
+func (m *MinioBucket) Ping() error {
+	expectedHash, _ := shortid.Generate()
+	if err := m.SyncMetadataState(expectedHash, "ping"); err != nil {
+		return err
+	}
+	mc := GetMinioClient(m)
+	objectName := fmt.Sprintf("%s/ping", m.GetDstDir())
+	stream, err := mc.GetObject(context.Background(), m.Bucket, objectName, minio.GetObjectOptions{})
 	if err != nil {
 		log.Errorf("ping failed, err: %s", err)
 		return err
@@ -192,13 +180,13 @@ func (mb *MinioBucket) Ping() error {
 	}
 	actualHash := string(buf.Bytes())
 	if actualHash != expectedHash {
-		return &BucketPingFailure{BucketId: mb.Id, ActualPingHash: actualHash, ExpectedPingHash: expectedHash}
+		return &BucketPingFailure{BucketId: m.Id, ActualPingHash: actualHash, ExpectedPingHash: expectedHash}
 	}
 	return nil
 }
 
-func (mb *MinioBucket) BucketType() BucketType {
-	if mb.Endpoint == "s3.amazonaws.com" {
+func (m *MinioBucket) BucketType() BucketType {
+	if m.Endpoint == "s3.amazonaws.com" {
 		return AwsBucketType
 	}
 	return MinioBucketType
@@ -245,41 +233,41 @@ func NewMinioBucket(endpoint, region, accessKey, secretKey, bucket, dstDir strin
 	}
 
 	return &MinioBucket{
-		Id:        fmt.Sprintf("minio-%s-%s", endpoint, bucket),
+		Id:        getBucketId(MinioBucketType, endpoint, bucket),
 		Endpoint:  endpoint,
 		Region:    region,
 		AccessKey: accessKey,
 		SecretKey: secretKey,
 		UseSSL:    strings.Contains(endpoint, "https://"),
 		Bucket:    bucket,
-		DstDir:    setDefaultDestinationDir(dstDir),
+		DstDir:    getDestinationDir(dstDir),
 	}
 }
 
 func NewAwsBucket(region, accessKey, secretKey, bucket, dstDir string) *MinioBucket {
 	endpoint := "s3.amazonaws.com"
 	return &MinioBucket{
-		Id:        fmt.Sprintf("aws-%s-%s", endpoint, bucket),
+		Id:        getBucketId(AwsBucketType, endpoint, bucket),
 		Endpoint:  endpoint,
 		Region:    region,
 		AccessKey: accessKey,
 		SecretKey: secretKey,
 		UseSSL:    true,
 		Bucket:    bucket,
-		DstDir:    setDefaultDestinationDir(dstDir),
+		DstDir:    getDestinationDir(dstDir),
 	}
 }
 
 func NewAwsIamBucket(region, bucket, dstDir string) *MinioBucket {
 	endpoint := "s3.amazonaws.com"
 	return &MinioBucket{
-		Id:        fmt.Sprintf("aws-%s-%s", endpoint, bucket),
+		Id:        getBucketId(AwsBucketType, endpoint, bucket),
 		Endpoint:  endpoint,
 		Region:    region,
 		AccessKey: "",
 		SecretKey: "",
 		UseSSL:    true,
 		Bucket:    bucket,
-		DstDir:    setDefaultDestinationDir(dstDir),
+		DstDir:    getDestinationDir(dstDir),
 	}
 }
