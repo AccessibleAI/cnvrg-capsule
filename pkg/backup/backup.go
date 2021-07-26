@@ -9,7 +9,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -19,6 +18,7 @@ type Backup struct {
 	Rotation    int         `json:"rotation"`
 	Date        time.Time   `json:"date"`
 	Period      float64     `json:"period"`
+	BucketType  BucketType  `json:"bucketType"`
 	Bucket      Bucket      `json:"bucket"`
 	ServiceType ServiceType `json:"serviceType"`
 	Service     Service     `json:"service"`
@@ -213,6 +213,12 @@ func (pb *Backup) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
+	// unmarshal backup type
+	if err := json.Unmarshal(*objMap["bucketType"], &pb.BucketType); err != nil {
+		log.Error(err)
+		return err
+	}
+
 	// unmarshal service type
 	if err := json.Unmarshal(*objMap["serviceType"], &pb.ServiceType); err != nil {
 		log.Error(err)
@@ -238,18 +244,17 @@ func (pb *Backup) UnmarshalJSON(b []byte) error {
 	}
 
 	// unmarshal bucket
-	var bucketData map[string]interface{}
-	if err := json.Unmarshal(*objMap["bucket"], &bucketData); err != nil {
-		log.Error(err)
-		return err
-	}
-	if strings.Contains(bucketData["id"].(string), "minio-") {
+	if pb.BucketType == MinioBucketType || pb.BucketType == AwsBucketType {
 		mb := MinioBucket{}
 		if err := json.Unmarshal(*objMap["bucket"], &mb); err != nil {
 			log.Error(err)
 			return err
 		}
 		pb.Bucket = &mb
+	} else {
+		err := &UnsupportedBucketError{}
+		log.Error(err.Error())
+		return err
 	}
 
 	// unmarshal service
@@ -260,6 +265,10 @@ func (pb *Backup) UnmarshalJSON(b []byte) error {
 			return err
 		}
 		pb.Service = &pgBackupService
+	} else {
+		err := &UnsupportedBackupService{}
+		log.Error(err.Error())
+		return err
 	}
 	return nil
 }
@@ -288,6 +297,7 @@ func Run() {
 func NewBackup(bucket Bucket, backupService Service, period string, rotation int, cnvrgAppRef string) *Backup {
 	b := &Backup{
 		BackupId:    fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
+		BucketType:  bucket.BucketType(),
 		Bucket:      bucket,
 		Status:      Initialized,
 		Date:        time.Now(),
@@ -309,7 +319,7 @@ func GetBackupBuckets() (bucket []Bucket) {
 			continue // backup not required, either backup disabled or the ns is blocked for backups
 		}
 		// discover destination bucket
-		b, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+		b, err := NewBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
 		if err != nil {
 			log.Errorf("error discovering backup bucket, err: %s", err)
 			continue
@@ -349,7 +359,7 @@ func discoverPgBackups(app v1.CnvrgApp) error {
 		return err
 	}
 	// discover destination bucket
-	bucket, err := NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+	bucket, err := NewBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
 	if err != nil {
 		return err
 	}

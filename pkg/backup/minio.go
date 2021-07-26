@@ -17,6 +17,11 @@ import (
 	"time"
 )
 
+const (
+	MinioBucketType BucketType = "minio"
+	AwsBucketType   BucketType = "aws"
+)
+
 type MinioBucket struct {
 	Id        string `json:"id"`
 	Endpoint  string `json:"endpoint"`
@@ -192,30 +197,47 @@ func (mb *MinioBucket) Ping() error {
 	return nil
 }
 
-func GetMinioClient(mb *MinioBucket) *minio.Client {
-	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	var transport http.RoundTripper = &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		TLSClientConfig:       tlsConfig,
-		DisableCompression:    true,
+func (mb *MinioBucket) BucketType() BucketType {
+	if mb.Endpoint == "s3.amazonaws.com" {
+		return AwsBucketType
 	}
-	connOptions := &minio.Options{Creds: credentials.NewStaticV4(mb.AccessKey, mb.SecretKey, ""), Secure: mb.UseSSL, Transport: transport}
-	mc, err := minio.New(mb.Endpoint, connOptions)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return mc
+	return MinioBucketType
 }
 
-func NewMinioBackupBucket(endpoint, region, accessKey, secretKey, bucket, dstDir string) *MinioBucket {
+func GetMinioClient(mb *MinioBucket) *minio.Client {
+	if mb.Endpoint == "s3.amazonaws.com" && mb.AccessKey == "" && mb.SecretKey == "" {
+		iam := credentials.NewIAM("")
+		connOptions := &minio.Options{Creds: iam, Secure: mb.UseSSL, Region: mb.Region}
+		mc, err := minio.New(mb.Endpoint, connOptions)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return mc
+	} else {
+		tlsConfig := &tls.Config{InsecureSkipVerify: true}
+		var transport http.RoundTripper = &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			TLSClientConfig:       tlsConfig,
+			DisableCompression:    true,
+		}
+		connOptions := &minio.Options{Creds: credentials.NewStaticV4(mb.AccessKey, mb.SecretKey, ""), Secure: mb.UseSSL, Transport: transport}
+		mc, err := minio.New(mb.Endpoint, connOptions)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return mc
+	}
+}
+
+func NewMinioBucket(endpoint, region, accessKey, secretKey, bucket, dstDir string) *MinioBucket {
 
 	if strings.Contains(endpoint, "https://") {
 		endpoint = strings.TrimPrefix(endpoint, "https://")
@@ -223,10 +245,6 @@ func NewMinioBackupBucket(endpoint, region, accessKey, secretKey, bucket, dstDir
 
 	if strings.Contains(endpoint, "http://") {
 		endpoint = strings.TrimPrefix(endpoint, "http://")
-	}
-
-	if dstDir == "" {
-		dstDir = "cnvrg-smart-backups"
 	}
 
 	return &MinioBucket{
@@ -237,5 +255,34 @@ func NewMinioBackupBucket(endpoint, region, accessKey, secretKey, bucket, dstDir
 		SecretKey: secretKey,
 		UseSSL:    strings.Contains(endpoint, "https://"),
 		Bucket:    bucket,
+		DstDir:    setDefaultDestinationDir(dstDir),
+	}
+}
+
+func NewAwsBucket(region, accessKey, secretKey, bucket, dstDir string) *MinioBucket {
+	endpoint := "s3.amazonaws.com"
+	return &MinioBucket{
+		Id:        fmt.Sprintf("aws-%s-%s", endpoint, bucket),
+		Endpoint:  endpoint,
+		Region:    region,
+		AccessKey: accessKey,
+		SecretKey: secretKey,
+		UseSSL:    true,
+		Bucket:    bucket,
+		DstDir:    setDefaultDestinationDir(dstDir),
+	}
+}
+
+func NewAwsIamBucket(region, bucket, dstDir string) *MinioBucket {
+	endpoint := "s3.amazonaws.com"
+	return &MinioBucket{
+		Id:        fmt.Sprintf("aws-%s-%s", endpoint, bucket),
+		Endpoint:  endpoint,
+		Region:    region,
+		AccessKey: "",
+		SecretKey: "",
+		UseSSL:    true,
+		Bucket:    bucket,
+		DstDir:    setDefaultDestinationDir(dstDir),
 	}
 }

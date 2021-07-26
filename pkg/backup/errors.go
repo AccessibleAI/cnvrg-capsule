@@ -29,3 +29,15 @@ type BucketPingFailure struct {
 func (e *BucketPingFailure) Error() string {
 	return fmt.Sprintf("ping failure [%s]: hashes are not eqaul: [ %s != %s ]", e.BucketId, e.ActualPingHash, e.ExpectedPingHash)
 }
+
+type UnsupportedBucketError struct{}
+
+func (e *UnsupportedBucketError) Error() string {
+	return fmt.Sprintf("unsupported bucket, supported buckets are: %s|%s", MinioBucketType, AwsBucketType)
+}
+
+type UnsupportedBackupService struct{}
+
+func (e *UnsupportedBackupService) Error() string {
+	return fmt.Sprintf("unsupported backup service, supported backup services are: %s", PgService)
+}
