@@ -113,7 +113,7 @@ var cliBackupPg = &cobra.Command{
 				return
 			}
 			// discover destination bucket
-			bucket, err := backup.NewBackupBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+			bucket, err := backup.NewBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
 			if err != nil {
 				return
 			}
