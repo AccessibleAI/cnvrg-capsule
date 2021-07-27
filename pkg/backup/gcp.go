@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/teris-io/shortid"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 	"io"
 	"io/ioutil"
 	"os"
@@ -17,6 +18,7 @@ import (
 
 type GcpBucket struct {
 	Id        string `json:"id"`
+	KeyJson   string `json:"keyJson"`
 	ProjectId string `json:"projectId"`
 	Bucket    string `json:"bucket"`
 	DstDir    string `json:"dstDir"`
@@ -27,11 +29,11 @@ const (
 )
 
 func (g *GcpBucket) Ping() error {
-
+	
 	ctx := context.Background()
 	expectedHash, _ := shortid.Generate()
 	fullObjectName := fmt.Sprintf("%s/%s", g.GetDstDir(), "ping")
-	client, err := storage.NewClient(ctx)
+	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
@@ -82,7 +84,7 @@ func (g *GcpBucket) BucketType() BucketType {
 
 func (g *GcpBucket) Remove(backupId string) error {
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
@@ -111,8 +113,9 @@ func (g *GcpBucket) Remove(backupId string) error {
 }
 
 func (g *GcpBucket) UploadFile(path, objectName string) error {
+	
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
@@ -141,8 +144,9 @@ func (g *GcpBucket) UploadFile(path, objectName string) error {
 }
 
 func (g *GcpBucket) DownloadFile(objectName, localFile string) error {
+	
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
@@ -170,10 +174,11 @@ func (g *GcpBucket) DownloadFile(objectName, localFile string) error {
 }
 
 func (g *GcpBucket) ScanBucket(serviceType ServiceType) []*Backup {
+	
 	log.Infof("scanning bucket for serviceType: %s", serviceType)
 	var backups []*Backup
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
@@ -218,8 +223,9 @@ func (g *GcpBucket) ScanBucket(serviceType ServiceType) []*Backup {
 }
 
 func (g *GcpBucket) SyncMetadataState(state, objectName string) error {
+	
 	ctx := context.Background()
-	client, err := storage.NewClient(ctx)
+	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
@@ -241,9 +247,10 @@ func (g *GcpBucket) SyncMetadataState(state, objectName string) error {
 	return nil
 }
 
-func NewGcpBucket(projectId, bucket, dstDir string) *GcpBucket {
+func NewGcpBucket(keyJons, projectId, bucket, dstDir string) *GcpBucket {
 	return &GcpBucket{
-		Id:        getBucketId(GcpBucketType, "gcp", bucket),
+		Id:        getBucketId(GcpBucketType, projectId, bucket),
+		KeyJson:   keyJons,
 		ProjectId: projectId,
 		Bucket:    bucket,
 		DstDir:    getDestinationDir(dstDir),

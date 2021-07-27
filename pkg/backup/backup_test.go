@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/teris-io/shortid"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
@@ -173,7 +174,7 @@ var _ = Describe("Backup", func() {
 			})
 		})
 
-		FContext("GCP bucket", func() {
+		Context("GCP bucket", func() {
 			testBucket := initGcpBucket
 			It("Test period parsing for seconds", func() {
 				testPeriodParsingForSeconds(testBucket())
@@ -349,7 +350,13 @@ func initGcpBucket() Bucket {
 	bn, _ := shortid.Generate()
 	bn = strings.ReplaceAll(strings.ToLower(bn), "-", "z")
 	bn = strings.ReplaceAll(bn, "_", "z")
+
+	keyJson, err := ioutil.ReadFile(os.Getenv("GOOGLE_CREDS"))
+	if err != nil {
+		log.Fatal(err)
+	}
 	return NewGcpBucket(
+		string(keyJson),
 		os.Getenv("CNVRG_STORAGE_PROJECT"),
 		os.Getenv("CNVRG_STORAGE_BUCKET"),
 		bn,

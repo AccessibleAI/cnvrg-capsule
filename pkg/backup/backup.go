@@ -333,7 +333,7 @@ func GetBackupBuckets() (bucket []Bucket) {
 			continue // backup not required, either backup disabled or the ns is blocked for backups
 		}
 		// discover destination bucket
-		b, err := NewBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+		b, err := NewBucketWithAutoDiscovery(app)
 		if err != nil {
 			log.Errorf("error discovering backup bucket, err: %s", err)
 			continue
@@ -373,7 +373,7 @@ func discoverPgBackups(app v1.CnvrgApp) error {
 		return err
 	}
 	// discover destination bucket
-	bucket, err := NewBucketWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.BucketRef, app.Namespace)
+	bucket, err := NewBucketWithAutoDiscovery(app)
 	if err != nil {
 		return err
 	}
