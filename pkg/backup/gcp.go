@@ -3,10 +3,13 @@ package backup
 import (
 	"cloud.google.com/go/storage"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/teris-io/shortid"
+	"google.golang.org/api/iterator"
 	"io"
 	"io/ioutil"
+	"sort"
 	"strings"
 	"time"
 )
@@ -91,19 +94,82 @@ func (g *GcpBucket) DownloadFile(objectName, localFile string) error {
 }
 
 func (g *GcpBucket) ScanBucket(serviceType ServiceType) []*Backup {
-
-	return nil
+	log.Infof("scanning bucket for serviceType: %s", serviceType)
+	var backups []*Backup
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*50)
+	defer cancel()
+	q := &storage.Query{Prefix: g.GetDstDir()}
+	it := client.Bucket(g.Bucket).Objects(ctx, q)
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			log.Error(err)
+			return nil
+		}
+		if strings.Contains(attrs.Name, Indexfile) {
+			rc, err := client.Bucket(g.Bucket).Object(attrs.Name).NewReader(ctx)
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+			data, err := ioutil.ReadAll(rc)
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+			rc.Close()
+			backup := Backup{}
+			if err := json.Unmarshal(data, &backup); err != nil {
+				log.Errorf("error unmarshal Backup request, object: %s, err: %s", attrs.Name, err)
+				continue
+			}
+			if backup.ServiceType == serviceType {
+				backups = append(backups, &backup)
+			}
+		}
+	}
+	sort.Slice(backups, func(i, j int) bool { return backups[i].Date.After(backups[j].Date) })
+	return backups
 }
 
 func (g *GcpBucket) SyncMetadataState(state, objectName string) error {
-
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*50)
+	defer cancel()
+	f := strings.NewReader(state)
+	fullObjectName := fmt.Sprintf("%s/%s", g.GetDstDir(), objectName)
+	wc := client.Bucket(g.Bucket).Object(fullObjectName).NewWriter(ctx)
+	if _, err = io.Copy(wc, f); err != nil {
+		log.Error(err)
+		return err
+	}
+	if err := wc.Close(); err != nil {
+		log.Error(err)
+		return err
+	}
+	log.Infof("backup state synchronized: %v", objectName)
 	return nil
 }
 
 func NewGcpBucket(projectId, bucket, dstDir string) *GcpBucket {
 	return &GcpBucket{
-		Id:     getBucketId(GcpBucketType, "gcp", bucket),
-		Bucket: bucket,
-		DstDir: getDestinationDir(dstDir),
+		Id:        getBucketId(GcpBucketType, "gcp", bucket),
+		ProjectId: projectId,
+		Bucket:    bucket,
+		DstDir:    getDestinationDir(dstDir),
 	}
 }

@@ -195,11 +195,11 @@ var _ = Describe("Backup", func() {
 				testPeriodExpired(testBucket())
 			})
 
-			FIt("Test bucket ping", func() {
+			It("Test bucket ping", func() {
 				testBucketPing(testBucket())
 			})
 
-			It("Test simple PostgreSQL backup", func() {
+			FIt("Test simple PostgreSQL backup", func() {
 				testSimplePostgreSQLBackup(testBucket())
 			})
 

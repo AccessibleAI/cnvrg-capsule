@@ -33,8 +33,8 @@ var (
 	activeBackups      = map[string]bool{}
 )
 
-func (pb *Backup) Jsonify() (string, error) {
-	jsonStr, err := json.Marshal(pb)
+func (b *Backup) Jsonify() (string, error) {
+	jsonStr, err := json.Marshal(b)
 	if err != nil {
 		log.Errorf("can't marshal struct, err: %v", err)
 		return "", nil
@@ -42,74 +42,74 @@ func (pb *Backup) Jsonify() (string, error) {
 	return string(jsonStr), nil
 }
 
-func (pb *Backup) backup() error {
+func (b *Backup) backup() error {
 
 	// if backups status is Finished - all good, backup is ready
-	if pb.Status == Finished {
-		log.Infof("backup: %s status is finished, skipping backup", pb.BackupId)
+	if b.Status == Finished {
+		log.Infof("backup: %s status is finished, skipping backup", b.BackupId)
 		return nil
 	}
 
 	// check if current backups is not active in another backup go routine
-	if pb.active() {
-		log.Infof("backup %s is active, skipping", pb.BackupId)
+	if b.active() {
+		log.Infof("backup %s is active, skipping", b.BackupId)
 		return nil
 	}
 	// activate backup in runtime - so other go routine won't initiate backup process again
-	pb.activate()
+	b.activate()
 	// deactivate backup
-	defer pb.deactivate()
+	defer b.deactivate()
 
 	// dump db
-	if err := pb.setStatusAndSyncState(DumpingDB); err != nil {
+	if err := b.setStatusAndSyncState(DumpingDB); err != nil {
 		return err
 	}
 
-	if err := pb.Service.Dump(); err != nil {
-		_ = pb.setStatusAndSyncState(Failed)
+	if err := b.Service.Dump(); err != nil {
+		_ = b.setStatusAndSyncState(Failed)
 		return err
 	}
 
 	// upload db dump to s3
-	if err := pb.setStatusAndSyncState(UploadingDB); err != nil {
+	if err := b.setStatusAndSyncState(UploadingDB); err != nil {
 		return err
 	}
-	if err := pb.Service.UploadBackupAssets(pb.Bucket, pb.BackupId); err != nil {
-		_ = pb.setStatusAndSyncState(Failed)
+	if err := b.Service.UploadBackupAssets(b.Bucket, b.BackupId); err != nil {
+		_ = b.setStatusAndSyncState(Failed)
 		return err
 	}
 
 	// finish backup
-	if err := pb.setStatusAndSyncState(Finished); err != nil {
+	if err := b.setStatusAndSyncState(Finished); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (pb *Backup) createBackupRequest() error {
+func (b *Backup) createBackupRequest() error {
 
-	if err := pb.Bucket.Ping(); err != nil {
-		log.Errorf("can't upload DB dump: %s, error during pinging bucket", pb.BackupId)
+	if err := b.Bucket.Ping(); err != nil {
+		log.Errorf("can't upload DB dump: %s, error during pinging bucket", b.BackupId)
 		return err
 	}
 
-	if !pb.ensureBackupRequestIsNeeded(pb.ServiceType) {
-		log.Infof("backup %s is not needed, skipping", pb.BackupId)
+	if !b.ensureBackupRequestIsNeeded(b.ServiceType) {
+		log.Infof("backup %s is not needed, skipping", b.BackupId)
 		return nil
 	}
 
-	jsonStr, err := pb.Jsonify()
+	jsonStr, err := b.Jsonify()
 	if err != nil {
 		return err
 	}
-	_ = pb.Bucket.SyncMetadataState(jsonStr, pb.getBackupIndexFileName())
+	_ = b.Bucket.SyncMetadataState(jsonStr, b.getBackupIndexFileName())
 
 	return nil
 }
 
-func (pb *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
-	backups := pb.Bucket.ScanBucket(serviceType)
+func (b *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
+	backups := b.Bucket.ScanBucket(serviceType)
 	// backup is needed if backups list is empty
 	if len(backups) == 0 {
 		log.Info("no backups has been done so far, backup is required")
@@ -124,29 +124,29 @@ func (pb *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
 	}
 
 	// period has been expired, make sure max rotation didn't reached
-	if len(backups) <= pb.Rotation {
+	if len(backups) <= b.Rotation {
 		log.Infof("latest backup is old enough (%fs), backup is required", diff-backups[0].Period)
 		return true
 	}
 
-	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucketId: %s, cleanup backups manually, and ask Dima wtf?", pb.Bucket.BucketId())
+	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucketId: %s, cleanup backups manually, and ask Dima wtf?", b.Bucket.BucketId())
 	return false
 }
 
-func (pb *Backup) syncBackupStateAzure() error {
-	//credential, err := azblob.NewSharedKeyCredential(pb.Bucket.AccessKey, pb.Bucket.SecretKey)
+func (b *Backup) syncBackupStateAzure() error {
+	//credential, err := azblob.NewSharedKeyCredential(b.Bucket.AccessKey, b.Bucket.SecretKey)
 	//if err != nil {
-	//	log.Errorf("error saving object: %s to S3, err: %s", pb.getBackupIndexFileName(), err)
+	//	log.Errorf("error saving object: %s to S3, err: %s", b.getBackupIndexFileName(), err)
 	//}
 	//p := azblob.NewPipeline(credential, azblob.PipelineOptions{})
-	//URL, _ := url.Parse(fmt.Sprintf("https://%s.blob.core.windows.net/%s", pb.Bucket.AccessKey, pb.Bucket.Bucket))
+	//URL, _ := url.Parse(fmt.Sprintf("https://%s.blob.core.windows.net/%s", b.Bucket.AccessKey, b.Bucket.Bucket))
 	//containerURL := azblob.NewContainerURL(*URL, p)
-	//jsonStr, err := pb.Jsonify()
+	//jsonStr, err := b.Jsonify()
 	//if err != nil {
 	//	return err
 	//}
 	//f := strings.NewReader(jsonStr)
-	//blobURL := containerURL.NewBlockBlobURL(pb.getBackupIndexFileName())
+	//blobURL := containerURL.NewBlockBlobURL(b.getBackupIndexFileName())
 	//options := azblob.UploadStreamToBlockBlobOptions{BufferSize: 2 * 1024 * 1024, MaxBuffers: 3}
 	//_, err = azblob.UploadStreamToBlockBlob(context.Background(), f, blobURL, options)
 	//if err != nil {
@@ -157,107 +157,114 @@ func (pb *Backup) syncBackupStateAzure() error {
 
 }
 
-func (pb *Backup) getBackupIndexFileName() string {
-	return fmt.Sprintf("%s/%s", pb.BackupId, Indexfile)
+func (b *Backup) getBackupIndexFileName() string {
+	return fmt.Sprintf("%s/%s", b.BackupId, Indexfile)
 }
 
-func (pb *Backup) active() bool {
+func (b *Backup) active() bool {
 	mutex.Lock()
-	_, active := activeBackups[pb.BackupId]
+	_, active := activeBackups[b.BackupId]
 	mutex.Unlock()
-	log.Infof("backup: %s is active: %v", pb.BackupId, active)
+	log.Infof("backup: %s is active: %v", b.BackupId, active)
 	return active
 }
 
-func (pb *Backup) activate() {
+func (b *Backup) activate() {
 	mutex.Lock()
-	activeBackups[pb.BackupId] = true
+	activeBackups[b.BackupId] = true
 	mutex.Unlock()
-	log.Infof("backup: %s has been activated", pb.BackupId)
+	log.Infof("backup: %s has been activated", b.BackupId)
 }
 
-func (pb *Backup) deactivate() {
+func (b *Backup) deactivate() {
 	mutex.Lock()
-	if _, active := activeBackups[pb.BackupId]; active {
-		delete(activeBackups, pb.BackupId)
+	if _, active := activeBackups[b.BackupId]; active {
+		delete(activeBackups, b.BackupId)
 	}
 	mutex.Unlock()
-	log.Infof("backup: %s has been deactivated", pb.BackupId)
+	log.Infof("backup: %s has been deactivated", b.BackupId)
 }
 
-func (pb *Backup) UnmarshalJSON(b []byte) error {
+func (b *Backup) UnmarshalJSON(bytes []byte) error {
 	//help: http://gregtrowbridge.com/golang-json-serialization-with-interfaces/
 
 	//get the bucket struct
 	var objMap map[string]*json.RawMessage
-	if err := json.Unmarshal(b, &objMap); err != nil {
+	if err := json.Unmarshal(bytes, &objMap); err != nil {
 		log.Error(err)
 		return err
 	}
 
 	// unmarshal backupId
-	if err := json.Unmarshal(*objMap["backupId"], &pb.BackupId); err != nil {
+	if err := json.Unmarshal(*objMap["backupId"], &b.BackupId); err != nil {
 		log.Error(err)
 		return err
 	}
 
 	// unmarshal status
-	if err := json.Unmarshal(*objMap["status"], &pb.Status); err != nil {
+	if err := json.Unmarshal(*objMap["status"], &b.Status); err != nil {
 		log.Error(err)
 		return err
 	}
 
 	// unmarshal backupDate
-	if err := json.Unmarshal(*objMap["date"], &pb.Date); err != nil {
+	if err := json.Unmarshal(*objMap["date"], &b.Date); err != nil {
 		log.Error(err)
 		return err
 	}
 
 	// unmarshal backup type
-	if err := json.Unmarshal(*objMap["bucketType"], &pb.BucketType); err != nil {
+	if err := json.Unmarshal(*objMap["bucketType"], &b.BucketType); err != nil {
 		log.Error(err)
 		return err
 	}
 
 	// unmarshal service type
-	if err := json.Unmarshal(*objMap["serviceType"], &pb.ServiceType); err != nil {
+	if err := json.Unmarshal(*objMap["serviceType"], &b.ServiceType); err != nil {
 		log.Error(err)
 		return err
 	}
 
 	// unmarshal period
-	if err := json.Unmarshal(*objMap["period"], &pb.Period); err != nil {
+	if err := json.Unmarshal(*objMap["period"], &b.Period); err != nil {
 		log.Error(err)
 		return err
 	}
 
 	// unmarshal rotation
-	if err := json.Unmarshal(*objMap["rotation"], &pb.Rotation); err != nil {
+	if err := json.Unmarshal(*objMap["rotation"], &b.Rotation); err != nil {
 		log.Error(err)
 		return err
 	}
 
 	// unmarshal status
-	if err := json.Unmarshal(*objMap["status"], &pb.Status); err != nil {
+	if err := json.Unmarshal(*objMap["status"], &b.Status); err != nil {
 		log.Error(err)
 		return err
 	}
 
 	// unmarshal bucket
-	if pb.BucketType == MinioBucketType || pb.BucketType == AwsBucketType { // minio or aws bucket
+	if b.BucketType == MinioBucketType || b.BucketType == AwsBucketType { // minio or aws bucket
 		mb := MinioBucket{}
 		if err := json.Unmarshal(*objMap["bucket"], &mb); err != nil {
 			log.Error(err)
 			return err
 		}
-		pb.Bucket = &mb
-	} else if pb.BucketType == AzureBucketType { // azure bucket
+		b.Bucket = &mb
+	} else if b.BucketType == AzureBucketType { // azure bucket
 		ab := AzureBucket{}
 		if err := json.Unmarshal(*objMap["bucket"], &ab); err != nil {
 			log.Error(err)
 			return err
 		}
-		pb.Bucket = &ab
+		b.Bucket = &ab
+	} else if b.BucketType == GcpBucketType {
+		gb := GcpBucket{}
+		if err := json.Unmarshal(*objMap["bucket"], &gb); err != nil {
+			log.Error(err)
+			return err
+		}
+		b.Bucket = &gb
 	} else {
 		err := &UnsupportedBucketError{}
 		log.Error(err.Error())
@@ -265,13 +272,13 @@ func (pb *Backup) UnmarshalJSON(b []byte) error {
 	}
 
 	// unmarshal service
-	if pb.ServiceType == PgService {
+	if b.ServiceType == PgService {
 		pgBackupService := PgBackupService{}
 		if err := json.Unmarshal(*objMap["service"], &pgBackupService); err != nil {
 			log.Error(err)
 			return err
 		}
-		pb.Service = &pgBackupService
+		b.Service = &pgBackupService
 	} else {
 		err := &UnsupportedBackupService{}
 		log.Error(err.Error())
@@ -280,14 +287,14 @@ func (pb *Backup) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (pb *Backup) setStatusAndSyncState(s Status) error {
-	pb.Status = s
-	jsonStr, err := pb.Jsonify()
+func (b *Backup) setStatusAndSyncState(s Status) error {
+	b.Status = s
+	jsonStr, err := b.Jsonify()
 	if err != nil {
 		log.Errorf("error jsonify, err: %s", err)
 		return err
 	}
-	if err := pb.Bucket.SyncMetadataState(jsonStr, pb.getBackupIndexFileName()); err != nil {
+	if err := b.Bucket.SyncMetadataState(jsonStr, b.getBackupIndexFileName()); err != nil {
 		log.Errorf("error syncing metadata state, err: %s", err)
 		return err
 	}
