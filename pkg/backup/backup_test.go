@@ -172,6 +172,49 @@ var _ = Describe("Backup", func() {
 				testRotationOfNOtCompletedBackups(testBucket())
 			})
 		})
+
+		Context("GCP bucket", func() {
+			testBucket := initGcpBucket
+			It("Test period parsing for seconds", func() {
+				testPeriodParsingForSeconds(testBucket())
+			})
+
+			It("Test period parsing for minutes", func() {
+				testPeriodParsingForMinutes(testBucket())
+			})
+
+			It("Test period parsing for hours", func() {
+				testPeriodParsingForHours(testBucket())
+			})
+
+			It("Backup request - test period not expired", func() {
+				testPeriodNotExpired(testBucket())
+			})
+
+			It("Backup request - test period expired", func() {
+				testPeriodExpired(testBucket())
+			})
+
+			FIt("Test bucket ping", func() {
+				testBucketPing(testBucket())
+			})
+
+			It("Test simple PostgreSQL backup", func() {
+				testSimplePostgreSQLBackup(testBucket())
+			})
+
+			It("Test backup with restore", func() {
+				testBackupWithRestore(testBucket())
+			})
+
+			It("Test rotation of completed backups", func() {
+				testRotationOfCompletedBackups(testBucket())
+			})
+
+			It("Test rotation of not completed backups", func() {
+				testRotationOfNOtCompletedBackups(testBucket())
+			})
+		})
 	})
 })
 
@@ -300,7 +343,17 @@ func initAzureBucket() Bucket {
 		"jenkins",
 		bn,
 	)
+}
 
+func initGcpBucket() Bucket {
+	bn, _ := shortid.Generate()
+	bn = strings.ReplaceAll(strings.ToLower(bn), "-", "z")
+	bn = strings.ReplaceAll(bn, "_", "z")
+	return NewGcpBucket(
+		os.Getenv("CNVRG_STORAGE_PROJECT"),
+		os.Getenv("CNVRG_STORAGE_BUCKET"),
+		bn,
+	)
 }
 
 func execSql(sql string) {

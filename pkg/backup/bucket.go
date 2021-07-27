@@ -29,7 +29,7 @@ const (
 	Failed      Status = "failed"
 	Finished    Status = "finished"
 	Indexfile string = "indexfile.json"
-	GcpBucket BucketType = "gcp"
+
 )
 
 func NewBucketWithAutoDiscovery(credsRef, ns string) (Bucket, error) {
