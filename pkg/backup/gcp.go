@@ -9,6 +9,7 @@ import (
 	"google.golang.org/api/iterator"
 	"io"
 	"io/ioutil"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -80,16 +81,91 @@ func (g *GcpBucket) BucketType() BucketType {
 }
 
 func (g *GcpBucket) Remove(backupId string) error {
-
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*50)
+	defer cancel()
+	prefix := fmt.Sprintf("%s/%s", g.GetDstDir(), backupId)
+	q := &storage.Query{Prefix: prefix}
+	it := client.Bucket(g.Bucket).Objects(ctx, q)
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		o := client.Bucket(g.Bucket).Object(attrs.Name)
+		if err := o.Delete(ctx); err != nil {
+			log.Error(err)
+			return err
+		}
+	}
 	return nil
 }
 
 func (g *GcpBucket) UploadFile(path, objectName string) error {
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*50)
+	defer cancel()
+	file, err := os.Open(path)
+	if err != nil {
+		log.Errorf("can't open dump file: %s, err: %s", path, err)
+		return err
+	}
+	defer file.Close()
 
+	fullObjectName := fmt.Sprintf("%s/%s", g.GetDstDir(), objectName)
+	wc := client.Bucket(g.Bucket).Object(fullObjectName).NewWriter(ctx)
+	if _, err = io.Copy(wc, file); err != nil {
+		log.Error(err)
+		return err
+	}
+	if err := wc.Close(); err != nil {
+		log.Error(err)
+		return err
+	}
+	log.Infof("successfully uploaded: %s", path)
 	return nil
 }
 
 func (g *GcpBucket) DownloadFile(objectName, localFile string) error {
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(ctx, time.Second*50)
+	defer cancel()
+	fullObjectName := fmt.Sprintf("%s/%s", g.GetDstDir(), objectName)
+	rc, err := client.Bucket(g.Bucket).Object(fullObjectName).NewReader(ctx)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	defer rc.Close()
+	file, err := os.Create(localFile)
+	if err != nil {
+		log.Errorf("can't open dump file: %s, err: %s", localFile, err)
+		return err
+	}
+	_, err = io.Copy(file, rc)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
 	return nil
 }
 

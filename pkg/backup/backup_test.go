@@ -173,7 +173,7 @@ var _ = Describe("Backup", func() {
 			})
 		})
 
-		Context("GCP bucket", func() {
+		FContext("GCP bucket", func() {
 			testBucket := initGcpBucket
 			It("Test period parsing for seconds", func() {
 				testPeriodParsingForSeconds(testBucket())
@@ -199,7 +199,7 @@ var _ = Describe("Backup", func() {
 				testBucketPing(testBucket())
 			})
 
-			FIt("Test simple PostgreSQL backup", func() {
+			It("Test simple PostgreSQL backup", func() {
 				testSimplePostgreSQLBackup(testBucket())
 			})
 
