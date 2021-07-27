@@ -28,9 +28,7 @@ const (
 	UploadingDB Status = "uploadingdb"
 	Failed      Status = "failed"
 	Finished    Status = "finished"
-
 	Indexfile string = "indexfile.json"
-
 	GcpBucket BucketType = "gcp"
 )
 
