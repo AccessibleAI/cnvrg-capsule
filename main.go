@@ -102,30 +102,30 @@ var cliBackupPg = &cobra.Command{
 		if !viper.GetBool("auto-discovery") {
 			logrus.Fatalf("currently only auto-discover=true is supported")
 		}
-		apps := k8s.GetCnvrgApps()
-		for _, app := range apps.Items {
-			if !backup.ShouldBackup(app) {
-				continue
-			}
-			// discover pg creds
-			pgCreds, err := backup.NewPgCredsWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.CredsRef, app.Namespace)
-			if err != nil {
-				return
-			}
-			// discover destination bucket
-			bucket, err := backup.NewBucketWithAutoDiscovery(app)
-			if err != nil {
-				return
-			}
-			// create backup request
-			period := app.Spec.Dbs.Pg.Backup.Period
-			rotation := app.Spec.Dbs.Pg.Backup.Rotation
-			pgBackup := backup.NewPgBackupService(*pgCreds)
-			backup := backup.NewBackup(bucket, pgBackup, period, rotation, "")
-			if err := backup.Service.Dump(); err != nil {
-				logrus.Fatalf("error dumping DB, err: %s", err)
-			}
-		}
+		//apps := k8s.GetCnvrgApps()
+		//for _, app := range apps.Items {
+		//	if !backup.ShouldBackup(app) {
+		//		continue
+		//	}
+		//	// discover pg creds
+		//	pgCreds, err := backup.NewPgCredsWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.CredsRef, app.Namespace)
+		//	if err != nil {
+		//		return
+		//	}
+		//	// discover destination bucket
+		//	bucket, err := backup.NewBucketWithAutoDiscovery(app)
+		//	if err != nil {
+		//		return
+		//	}
+		//	// create backup request
+		//	period := app.Spec.Dbs.Pg.Backup.Period
+		//	rotation := app.Spec.Dbs.Pg.Backup.Rotation
+		//	pgBackup := backup.NewPgBackupService(*pgCreds)
+		//	backup := backup.NewBackup(bucket, pgBackup, period, rotation, "")
+		//	if err := backup.Service.Dump(); err != nil {
+		//		logrus.Fatalf("error dumping DB, err: %s", err)
+		//	}
+		//}
 	},
 }
 

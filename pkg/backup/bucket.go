@@ -3,7 +3,6 @@ package backup
 import (
 	"fmt"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
-	mlopsv1 "github.com/AccessibleAI/cnvrg-operator/api/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -32,10 +31,10 @@ const (
 	Indexfile   string = "indexfile.json"
 )
 
-func NewBucketWithAutoDiscovery(app mlopsv1.CnvrgApp) (Bucket, error) {
-	n := types.NamespacedName{Namespace: app.Namespace, Name: app.Spec.Dbs.Pg.Backup.BucketRef}
+func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
+	n := types.NamespacedName{Namespace: ns, Name: bucketName}
 	bucketSecret := k8s.GetSecret(n)
-	if err := validateBucketSecret(app.Spec.Dbs.Pg.Backup.BucketRef, bucketSecret.Data); err != nil {
+	if err := validateBucketSecret(bucketName, bucketSecret.Data); err != nil {
 		log.Errorf("backup bucket secret is invalid: err: %s", err.Error())
 		return nil, err
 	}
@@ -78,7 +77,8 @@ func NewBucketWithAutoDiscovery(app mlopsv1.CnvrgApp) (Bucket, error) {
 		), nil
 	}
 	if bucketType == GcpBucketType {
-		n = types.NamespacedName{Namespace: app.Namespace, Name: app.Spec.ControlPlane.ObjectStorage.GcpSecretRef}
+		gcpSecretRef := string(bucketSecret.Data["CNVRG_STORAGE_GCP_SECRET_REF"])
+		n = types.NamespacedName{Namespace: ns, Name: gcpSecretRef}
 		gcpBucketSecret := k8s.GetSecret(n)
 		return NewGcpBucket(
 			string(gcpBucketSecret.Data["key.json"]),

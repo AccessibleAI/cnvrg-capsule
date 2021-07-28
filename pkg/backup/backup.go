@@ -23,7 +23,28 @@ type Backup struct {
 	ServiceType ServiceType `json:"serviceType"`
 	Service     Service     `json:"service"`
 	Status      Status      `json:"status"`
-	CnvrgAppRef string      `json:"cnvrgAppRef"`
+}
+
+type PvcAnnotation string
+
+const (
+	BackupEnabledAnnotation PvcAnnotation = "capsule.mlops.cnvrg.io/backup"
+	ServiceTypeAnnotation   PvcAnnotation = "capsule.mlops.cnvrg.io/serviceType"
+	BucketRefAnnotation     PvcAnnotation = "capsule.mlops.cnvrg.io/bucketRef"
+	CredsRefAnnotation      PvcAnnotation = "capsule.mlops.cnvrg.io/credsRef"
+	RotationRefAnnotation   PvcAnnotation = "capsule.mlops.cnvrg.io/rotation"
+	PeriodAnnotation        PvcAnnotation = "capsule.mlops.cnvrg.io/period"
+)
+
+type DiscoveryInputs struct {
+	BackupEnabled   bool
+	ServiceType     ServiceType
+	BucketRefSecret string
+	CredsRefSecret  string
+	Rotation        int
+	Period          string
+	PvcName         string
+	PvcNamespace    string
 }
 
 var (
@@ -131,30 +152,6 @@ func (b *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
 
 	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucketId: %s, cleanup backups manually, and ask Dima wtf?", b.Bucket.BucketId())
 	return false
-}
-
-func (b *Backup) syncBackupStateAzure() error {
-	//credential, err := azblob.NewSharedKeyCredential(b.Bucket.AccessKey, b.Bucket.SecretKey)
-	//if err != nil {
-	//	log.Errorf("error saving object: %s to S3, err: %s", b.getBackupIndexFileName(), err)
-	//}
-	//p := azblob.NewPipeline(credential, azblob.PipelineOptions{})
-	//URL, _ := url.Parse(fmt.Sprintf("https://%s.blob.core.windows.net/%s", b.Bucket.AccessKey, b.Bucket.Bucket))
-	//containerURL := azblob.NewContainerURL(*URL, p)
-	//jsonStr, err := b.Jsonify()
-	//if err != nil {
-	//	return err
-	//}
-	//f := strings.NewReader(jsonStr)
-	//blobURL := containerURL.NewBlockBlobURL(b.getBackupIndexFileName())
-	//options := azblob.UploadStreamToBlockBlobOptions{BufferSize: 2 * 1024 * 1024, MaxBuffers: 3}
-	//_, err = azblob.UploadStreamToBlockBlob(context.Background(), f, blobURL, options)
-	//if err != nil {
-	//	log.Errorf("error uploaind bolb to azure storage, err: %s", err)
-	//	return err
-	//}
-	return nil
-
 }
 
 func (b *Backup) getBackupIndexFileName() string {
@@ -308,7 +305,33 @@ func Run() {
 	go scanBucketForBackupRequests(BucketsToWatchChan)
 }
 
-func NewBackup(bucket Bucket, backupService Service, period string, rotation int, cnvrgAppRef string) *Backup {
+func NewDiscoveryInputs(inputs map[string]string, pvcName, ns string) *DiscoveryInputs {
+	if err := validatePvcAnnotations(pvcName, inputs); err != nil {
+		log.Errorf("bad pvc annotations, err: %s", err)
+		return nil
+	}
+	ds := DiscoveryInputs{}
+	enabled := inputs[string(BackupEnabledAnnotation)]
+	if enabled == "true" {
+		ds.BackupEnabled = true
+	}
+	ds.ServiceType = ServiceType(inputs[string(ServiceTypeAnnotation)])
+	ds.BucketRefSecret = inputs[string(BucketRefAnnotation)]
+	ds.CredsRefSecret = inputs[string(CredsRefAnnotation)]
+	r, err := strconv.Atoi(inputs[string(RotationRefAnnotation)])
+	if err != nil {
+		log.Error(err)
+		return nil
+	}
+	ds.Rotation = r
+	ds.Period = inputs[string(PeriodAnnotation)]
+	ds.PvcName = pvcName
+	ds.PvcNamespace = ns
+	return &ds
+
+}
+
+func NewBackup(bucket Bucket, backupService Service, period string, rotation int) *Backup {
 	b := &Backup{
 		BackupId:    fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
 		BucketType:  bucket.BucketType(),
@@ -319,21 +342,31 @@ func NewBackup(bucket Bucket, backupService Service, period string, rotation int
 		Service:     backupService,
 		Period:      getPeriodInSeconds(period),
 		Rotation:    rotation,
-		CnvrgAppRef: cnvrgAppRef,
 	}
 	log.Debugf("new backup initiated: %#v", b)
 	return b
 }
 
 func GetBackupBuckets() (bucket []Bucket) {
-	apps := k8s.GetCnvrgApps()
-	for _, app := range apps.Items {
-		// make sure backups enabled
-		if !ShouldBackup(app) {
+
+	for _, pvc := range k8s.GetPvcs().Items {
+
+		if !capsuleEnabledPvc(pvc.Annotations) {
+			continue
+		}
+
+		ds := NewDiscoveryInputs(pvc.Annotations, pvc.Name, pvc.Namespace)
+		if ds == nil {
+			log.Error("empty discover inputs, validate pvc annotations, skipping backup ")
+			continue
+		}
+
+		if !ShouldBackup(ds) {
 			continue // backup not required, either backup disabled or the ns is blocked for backups
 		}
+
 		// discover destination bucket
-		b, err := NewBucketWithAutoDiscovery(app)
+		b, err := NewBucketWithAutoDiscovery(ds.PvcNamespace, ds.BucketRefSecret)
 		if err != nil {
 			log.Errorf("error discovering backup bucket, err: %s", err)
 			continue
@@ -347,41 +380,62 @@ func discoverBackups() {
 	//if auto-discovery is true
 	if viper.GetBool("auto-discovery") {
 		for {
-			// get all cnvrg apps
-			apps := k8s.GetCnvrgApps()
-			for _, app := range apps.Items {
 
-				// make sure backups enabled
-				if !ShouldBackup(app) {
-					continue // backup not required, either backup disabled or the ns is blocked for backups
+			for _, pvc := range k8s.GetPvcs().Items {
+
+				if !capsuleEnabledPvc(pvc.Annotations) {
+					continue
 				}
 
-				// discover PG backups
-				_ = discoverPgBackups(app)
+				ds := NewDiscoveryInputs(pvc.Annotations, pvc.Name, pvc.Namespace)
+				if ds == nil {
+					log.Error("empty discover inputs, validate pvc annotations, skipping backup ")
+					continue
+				}
+
+				if !ShouldBackup(ds) {
+					continue // backup not required, either backup disabled or the ns is blocked for backups
+				}
+				_ = discoverPgBackups(ds)
 
 			}
+
+			// get all cnvrg apps
+			//apps := k8s.GetCnvrgApps()
+			//for _, app := range apps.Items {
+
+			// make sure backups enabled
+			//if !ShouldBackup(app) {
+			//	continue // backup not required, either backup disabled or the ns is blocked for backups
+			//}
+
+			// discover PG backups
+			//_ = discoverPgBackups(app)
+
+			//}
 			time.Sleep(60 * time.Second)
 		}
 	}
 }
 
-func discoverPgBackups(app v1.CnvrgApp) error {
+func discoverPgBackups(ds *DiscoveryInputs) error {
 
 	//discover pg creds
-	pgCreds, err := NewPgCredsWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.CredsRef, app.Namespace)
+	pgCreds, err := NewPgCredsWithAutoDiscovery(ds.PvcNamespace, ds.CredsRefSecret)
 	if err != nil {
 		return err
 	}
 	// discover destination bucket
-	bucket, err := NewBucketWithAutoDiscovery(app)
+	bucket, err := NewBucketWithAutoDiscovery(ds.PvcNamespace, ds.BucketRefSecret)
 	if err != nil {
 		return err
 	}
 	// create backup request
-	period := app.Spec.Dbs.Pg.Backup.Period
-	rotation := app.Spec.Dbs.Pg.Backup.Rotation
-	pgBackupService := NewPgBackupService(*pgCreds)
-	backup := NewBackup(bucket, pgBackupService, period, rotation, cnvrgAppRef(app))
+	period := ds.Period
+	rotation := ds.Rotation
+	backupServiceName := fmt.Sprintf("%s/%s", ds.PvcNamespace, ds.PvcName)
+	pgBackupService := NewPgBackupService(backupServiceName, *pgCreds)
+	backup := NewBackup(bucket, pgBackupService, period, rotation)
 	if err := backup.createBackupRequest(); err != nil {
 		log.Errorf("error creating backup request, err: %s", err)
 		return err
@@ -463,4 +517,9 @@ func getPeriodInSeconds(period string) float64 {
 
 func cnvrgAppRef(app v1.CnvrgApp) string {
 	return fmt.Sprintf("%s/%s", app.Namespace, app.Name)
+}
+
+func capsuleEnabledPvc(pvcAnnotations map[string]string) bool {
+	_, capsuleEnabledForPvc := pvcAnnotations[string(BackupEnabledAnnotation)]
+	return capsuleEnabledForPvc
 }

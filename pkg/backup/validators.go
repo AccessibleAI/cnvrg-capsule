@@ -1,7 +1,6 @@
 package backup
 
 import (
-	mlopsv1 "github.com/AccessibleAI/cnvrg-operator/api/v1"
 	"github.com/spf13/viper"
 	"strings"
 )
@@ -34,6 +33,37 @@ func validateBucketSecret(secretName string, data map[string][]byte) error {
 	return nil
 }
 
+func validatePvcAnnotations(pvcName string, annotations map[string]string) error {
+	if annotations == nil {
+		return &RequiredKeyIsMissing{Key: "ALL_KEYS_ARE_MISSING", ObjectName: pvcName}
+	}
+
+	// make sure all required annotations are presented
+	annotationsChecks := []PvcAnnotation{
+		BackupEnabledAnnotation,
+		ServiceTypeAnnotation,
+		BucketRefAnnotation,
+		CredsRefAnnotation,
+		RotationRefAnnotation,
+		PeriodAnnotation,
+	}
+	for _, annotation := range annotationsChecks {
+		if _, ok := annotations[string(annotation)]; !ok {
+			return &RequiredKeyIsMissing{Key: string(annotation), ObjectName: pvcName}
+		}
+	}
+
+	// make sure supported service type provided
+	supportedServicesTypes := []ServiceType{PgService}
+	for _, backupService := range supportedServicesTypes {
+		if string(backupService) == annotations[string(ServiceTypeAnnotation)] {
+			return nil
+		}
+	}
+
+	return &UnsupportedBackupService{}
+}
+
 func validatePgCreds(secretName string, data map[string][]byte) error {
 	if data == nil {
 		return &RequiredKeyIsMissing{Key: "ALL_KEYS_ARE_MISSING", ObjectName: secretName}
@@ -53,14 +83,14 @@ func validatePgCreds(secretName string, data map[string][]byte) error {
 	return nil
 }
 
-func ShouldBackup(app mlopsv1.CnvrgApp) bool {
+func ShouldBackup(ds *DiscoveryInputs) bool {
 	nsWhitelist := viper.GetString("ns-whitelist")
-	if *app.Spec.Dbs.Pg.Backup.Enabled {
-		if nsWhitelist == "*" || strings.Contains(nsWhitelist, app.Namespace) {
-			log.Infof("backup enabled for: %s/%s", app.Namespace, app.Name)
+	if ds.BackupEnabled {
+		if nsWhitelist == "*" || strings.Contains(nsWhitelist, ds.PvcNamespace) {
+			log.Infof("backup enabled for: %s/%s", ds.PvcNamespace, ds.PvcName)
 			return true
 		}
 	}
-	log.Warnf("skipping, backup is not enabled (or whitelisted) for: %s/%s", app.Namespace, app.Name)
+	log.Warnf("skipping, backup is not enabled (or whitelisted) for: %s/%s", ds.PvcNamespace, ds.PvcName)
 	return false
 }

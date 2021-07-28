@@ -10,3 +10,7 @@ type Service interface {
 	UploadBackupAssets(bucket Bucket, id string) error
 	DownloadBackupAssets(bucket Bucket, id string) error
 }
+
+const (
+	PgService ServiceType = "postgresql"
+)

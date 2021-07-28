@@ -103,3 +103,11 @@ func GetSecret(name types.NamespacedName) *v1core.Secret {
 	}
 	return &secret
 }
+
+func GetPvcs() *v1core.PersistentVolumeClaimList {
+	pvcList := v1core.PersistentVolumeClaimList{}
+	if err := k8sClient.List(context.Background(), &pvcList); err != nil {
+		log.Errorf("error listing pvcs, err %s", err)
+	}
+	return &pvcList
+}

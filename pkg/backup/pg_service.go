@@ -11,10 +11,6 @@ import (
 	"strings"
 )
 
-const (
-	PgService ServiceType = "postgresql"
-)
-
 type PgCreds struct {
 	Host   string `json:"host,omitempty"`
 	DbName string `json:"db,omitempty"`
@@ -23,6 +19,7 @@ type PgCreds struct {
 }
 
 type PgBackupService struct {
+	Name     string   `json:"name"`
 	Creds    PgCreds  `json:"creds"`
 	DumpCmd  []string `json:"backupCmd"`
 	Dumpfile string   `json:"dumpfile"`
@@ -96,8 +93,8 @@ func (pgs *PgBackupService) DownloadBackupAssets(bucket Bucket, id string) error
 	return bucket.DownloadFile(objectName, pgs.DumpfileLocalPath())
 }
 
-func NewPgCredsWithAutoDiscovery(credsRef, ns string) (*PgCreds, error) {
-	n := types.NamespacedName{Namespace: ns, Name: credsRef}
+func NewPgCredsWithAutoDiscovery(ns, pgSecretName string) (*PgCreds, error) {
+	n := types.NamespacedName{Namespace: ns, Name: pgSecretName}
 	pgSecret := k8s.GetSecret(n)
 	if err := validatePgCreds(n.Name, pgSecret.Data); err != nil {
 		log.Errorf("pg creds secret invalid, err: %s", err)
@@ -112,7 +109,7 @@ func NewPgCredsWithAutoDiscovery(credsRef, ns string) (*PgCreds, error) {
 	}, nil
 }
 
-func NewPgBackupService(creds PgCreds) *PgBackupService {
+func NewPgBackupService(name string, creds PgCreds) *PgBackupService {
 	dumpfile := fmt.Sprintf("%s-pgdump.tar", shortuuid.New())
 	localDumpPath := fmt.Sprintf("%s/%s", viper.GetString("dumpdir"), dumpfile)
 	dumpCmd := []string{
@@ -124,6 +121,7 @@ func NewPgBackupService(creds PgCreds) *PgBackupService {
 		"--verbose",
 	}
 	return &PgBackupService{
+		Name:     name,
 		Creds:    creds,
 		Dumpfile: dumpfile,
 		DumpCmd:  dumpCmd,
