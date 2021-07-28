@@ -4,7 +4,6 @@ package k8s
 
 import (
 	"context"
-	mlopsv1 "github.com/AccessibleAI/cnvrg-operator/api/v1"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	v1core "k8s.io/api/core/v1"
@@ -34,9 +33,9 @@ func GetClient() client.Client {
 
 	scheme := runtime.NewScheme()
 	// register cnvrg mlops gvr
-	if err := mlopsv1.AddToScheme(scheme); err != nil {
-		log.Error(err)
-	}
+	//if err := mlopsv1.AddToScheme(scheme); err != nil {
+	//	log.Error(err)
+	//}
 	// register v1core gvr
 	if err := v1core.AddToScheme(scheme); err != nil {
 		log.Error(err)
@@ -85,14 +84,14 @@ func clientset() *kubernetes.Clientset {
 	return clientset
 }
 
-func GetCnvrgApps() *mlopsv1.CnvrgAppList {
-	l := mlopsv1.CnvrgAppList{}
-	log.Debug("fetching all cnvrgapps")
-	if err := k8sClient.List(context.Background(), &l); err != nil {
-		log.Error("failed to list CnvrgApps err: %v,", err)
-	}
-	return &l
-}
+//func GetCnvrgApps() *mlopsv1.CnvrgAppList {
+//	l := mlopsv1.CnvrgAppList{}
+//	log.Debug("fetching all cnvrgapps")
+//	if err := k8sClient.List(context.Background(), &l); err != nil {
+//		log.Error("failed to list CnvrgApps err: %v,", err)
+//	}
+//	return &l
+//}
 
 func GetSecret(name types.NamespacedName) *v1core.Secret {
 

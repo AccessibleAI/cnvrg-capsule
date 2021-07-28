@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
-	v1 "github.com/AccessibleAI/cnvrg-operator/api/v1"
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -400,19 +399,6 @@ func discoverBackups() {
 
 			}
 
-			// get all cnvrg apps
-			//apps := k8s.GetCnvrgApps()
-			//for _, app := range apps.Items {
-
-			// make sure backups enabled
-			//if !ShouldBackup(app) {
-			//	continue // backup not required, either backup disabled or the ns is blocked for backups
-			//}
-
-			// discover PG backups
-			//_ = discoverPgBackups(app)
-
-			//}
 			time.Sleep(60 * time.Second)
 		}
 	}
@@ -513,10 +499,6 @@ func getPeriodInSeconds(period string) float64 {
 	}
 	log.Fatalf("period worng format, must be on of the [Xs, Xm, Xh]: %s", err)
 	return n
-}
-
-func cnvrgAppRef(app v1.CnvrgApp) string {
-	return fmt.Sprintf("%s/%s", app.Namespace, app.Name)
 }
 
 func capsuleEnabledPvc(pvcAnnotations map[string]string) bool {

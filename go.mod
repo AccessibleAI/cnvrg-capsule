@@ -7,6 +7,7 @@ require (
 	cloud.google.com/go/storage v1.16.0
 	github.com/AccessibleAI/cnvrg-operator v0.0.0-20210719125821-e9e3f12c477b
 	github.com/Azure/azure-storage-blob-go v0.14.0
+	github.com/briandowns/spinner v1.16.0 // indirect
 	github.com/gin-gonic/gin v1.7.2
 	github.com/go-playground/validator/v10 v10.6.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
@@ -14,6 +15,7 @@ require (
 	github.com/jackc/pgx/v4 v4.12.0
 	github.com/leodido/go-urn v1.2.1 // indirect
 	github.com/lithammer/shortuuid/v3 v3.0.7
+	github.com/manifoldco/promptui v0.8.0 // indirect
 	github.com/mattn/go-isatty v0.0.13 // indirect
 	github.com/minio/minio-go/v7 v7.0.12
 	github.com/onsi/ginkgo v1.16.4

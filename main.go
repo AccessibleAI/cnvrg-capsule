@@ -3,9 +3,10 @@ package main
 import (
 	"fmt"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/apiserver"
-	backup "github.com/AccessibleAI/cnvrg-capsule/pkg/backup"
+	"github.com/AccessibleAI/cnvrg-capsule/pkg/backup"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
-	"github.com/sirupsen/logrus"
+	"github.com/manifoldco/promptui"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"os"
@@ -29,8 +30,13 @@ const (
 )
 
 var (
-	BuildVersion string
-	rootParams   = []param{
+	BuildVersion    string
+	cliBackupParams = []param{
+		{name: "list", shorthand: "l", value: false, usage: "list backups"},
+		{name: "delete", shorthand: "d", value: false, usage: "delete backup"},
+		{name: "id", shorthand: "", value: "", usage: "backup id"},
+	}
+	rootParams = []param{
 		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
 		{name: "dumpdir", shorthand: "", value: "/tmp", usage: "place to download DB dumps before uploading to s3 bucket"},
 		{name: "auto-discovery", shorthand: "", value: true, usage: "automatically detect pg creds based on K8s secret"},
@@ -42,6 +48,26 @@ var (
 		{name: "mode", shorthand: "", value: "allinone", usage: fmt.Sprintf("%s|%s|%s", AllInOne, Api, BackupEngine)},
 	}
 )
+
+var selectBackupTemplate = &promptui.SelectTemplates{
+	Label:    "{{ . }}?",
+	Active:   "🙀 {{ .BackupId | cyan }} ({{ .Date | red }})",
+	Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
+	Selected: "🙀 {{ .BackupId | red | cyan }}",
+	Details: `
+--------- Backup ----------
+{{ "Id:" | faint }}	{{ .BackupId }}
+{{ "Date:" | faint }}	{{ .Date }}
+{{ "Type:" | faint }}	{{ .ServiceType }}
+{{ "Status:" | faint }}	{{ .Status }}`,
+}
+
+var confirmTemplate = &promptui.SelectTemplates{
+	Label:    `{{ . }}?`,
+	Active:   `> {{ . | red}}`,
+	Inactive: `  {{ . | faint}} `,
+	Selected: `> {{ . | red }}`,
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "cnvrg-capsule",
@@ -65,7 +91,7 @@ var startCapsule = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		stopChan := make(chan bool)
 		runMode := RunMode(viper.GetString("mode"))
-		logrus.Infof("starting capsule, mode: %s", runMode)
+		log.Infof("starting capsule, mode: %s", runMode)
 		if runMode == AllInOne || runMode == Api {
 			go apiserver.RunApi()
 		}
@@ -81,16 +107,16 @@ var cliBackup = &cobra.Command{
 	Short: "Run capsule backups from cli",
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
-			logrus.Error("wrong parameter provided, must be one of the following: pg")
+			log.Error("wrong parameter provided, must be one of the following: pg")
 			_ = cmd.Help()
 			os.Exit(1)
 		}
 		if args[0] != "pg" {
-			logrus.Errorf("wrong paramter provided: %s, must be one of the following: pg", args[0])
+			log.Errorf("wrong paramter provided: %s, must be one of the following: pg", args[0])
 			_ = cmd.Help()
 			os.Exit(1)
 		}
-		logrus.Info("starting capsule...")
+		log.Info("starting capsule...")
 	},
 }
 
@@ -98,34 +124,60 @@ var cliBackupPg = &cobra.Command{
 	Use:   "pg",
 	Short: "Backup PG",
 	Run: func(cmd *cobra.Command, args []string) {
-		logrus.Info("starting pg backup...")
-		if !viper.GetBool("auto-discovery") {
-			logrus.Fatalf("currently only auto-discover=true is supported")
+		if viper.GetBool("list") {
+			log.Info("getting pg backup")
+			var backups []*backup.Backup
+			for _, bucket := range backup.GetBackupBuckets() {
+				backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+				for _, backup := range backups {
+					formatted := fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d",
+						backup.Date.Year(), backup.Date.Month(), backup.Date.Day(),
+						backup.Date.Hour(), backup.Date.Minute(), backup.Date.Second())
+					log.Infof("backup: %s, name: %s, date:%s, status: %s", backup.BackupId, backup.Service.GetName(), formatted, backup.Status)
+				}
+			}
 		}
-		//apps := k8s.GetCnvrgApps()
-		//for _, app := range apps.Items {
-		//	if !backup.ShouldBackup(app) {
-		//		continue
-		//	}
-		//	// discover pg creds
-		//	pgCreds, err := backup.NewPgCredsWithAutoDiscovery(app.Spec.Dbs.Pg.Backup.CredsRef, app.Namespace)
-		//	if err != nil {
-		//		return
-		//	}
-		//	// discover destination bucket
-		//	bucket, err := backup.NewBucketWithAutoDiscovery(app)
-		//	if err != nil {
-		//		return
-		//	}
-		//	// create backup request
-		//	period := app.Spec.Dbs.Pg.Backup.Period
-		//	rotation := app.Spec.Dbs.Pg.Backup.Rotation
-		//	pgBackup := backup.NewPgBackupService(*pgCreds)
-		//	backup := backup.NewBackup(bucket, pgBackup, period, rotation, "")
-		//	if err := backup.Service.Dump(); err != nil {
-		//		logrus.Fatalf("error dumping DB, err: %s", err)
-		//	}
-		//}
+		if viper.GetBool("delete") {
+			log.Info("getting pg backup")
+			if viper.GetString("id") == "" {
+				var backups []*backup.Backup
+				for _, bucket := range backup.GetBackupBuckets() {
+					backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+				}
+				backupSelect := promptui.Select{
+					Label:     "Select backup for deletion",
+					Items:     backups,
+					Size:      10,
+					Templates: selectBackupTemplate,
+				}
+				if len(backups) == 0 {
+					log.Info("backups list is empty, nothing to delete")
+					return
+				}
+				idx, _, err := backupSelect.Run()
+				if err != nil {
+					log.Error(err)
+					return
+				}
+				confirmDelete := promptui.Select{
+					Label:     fmt.Sprintf("Deleting %s, are you sure?", backups[idx].BackupId),
+					Items:     []string{"No", "Yes"},
+					Templates: confirmTemplate,
+				}
+				_, confirm, err := confirmDelete.Run()
+				if err != nil {
+					log.Error(err)
+					return
+				}
+				if confirm == "Yes" {
+					if err := backups[idx].Bucket.Remove(backups[idx].BackupId); err != nil {
+						log.Error(err)
+						return
+					}
+					log.Infof("%s removed", backups[idx].BackupId)
+				}
+			}
+		}
 	},
 }
 
@@ -153,10 +205,11 @@ func setupCommands() {
 
 	setParams(startCapsuleParams, startCapsule)
 	setParams(rootParams, rootCmd)
+	setParams(cliBackupParams, cliBackupPg)
 	cliBackup.AddCommand(cliBackupPg)
+	rootCmd.AddCommand(cliBackup)
 	rootCmd.AddCommand(startCapsule)
 	rootCmd.AddCommand(capsuleVersion)
-	rootCmd.AddCommand(cliBackup)
 
 }
 
@@ -164,20 +217,20 @@ func setupLogging() {
 
 	// Set log verbosity
 	if viper.GetBool("verbose") {
-		logrus.SetLevel(logrus.DebugLevel)
-		logrus.SetReportCaller(true)
+		log.SetLevel(log.DebugLevel)
+		log.SetReportCaller(true)
 	} else {
-		logrus.SetLevel(logrus.InfoLevel)
-		logrus.SetReportCaller(false)
+		log.SetLevel(log.InfoLevel)
+		log.SetReportCaller(false)
 	}
 	// Set log format
 	if viper.GetBool("json-log") {
-		logrus.SetFormatter(&logrus.JSONFormatter{})
+		log.SetFormatter(&log.JSONFormatter{})
 	} else {
-		logrus.SetFormatter(&logrus.TextFormatter{FullTimestamp: true})
+		log.SetFormatter(&log.TextFormatter{FullTimestamp: true})
 	}
 	// Logs are always goes to STDOUT
-	logrus.SetOutput(os.Stdout)
+	log.SetOutput(os.Stdout)
 }
 
 func main() {
