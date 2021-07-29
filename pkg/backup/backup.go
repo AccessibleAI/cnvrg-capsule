@@ -350,7 +350,7 @@ func GetBackupBuckets() (bucket []Bucket) {
 
 	for _, pvc := range k8s.GetPvcs().Items {
 
-		if !capsuleEnabledPvc(pvc.Annotations) {
+		if !CapsuleEnabledPvc(pvc.Annotations) {
 			continue
 		}
 
@@ -382,7 +382,7 @@ func discoverBackups() {
 
 			for _, pvc := range k8s.GetPvcs().Items {
 
-				if !capsuleEnabledPvc(pvc.Annotations) {
+				if !CapsuleEnabledPvc(pvc.Annotations) {
 					continue
 				}
 
@@ -501,7 +501,7 @@ func getPeriodInSeconds(period string) float64 {
 	return n
 }
 
-func capsuleEnabledPvc(pvcAnnotations map[string]string) bool {
+func CapsuleEnabledPvc(pvcAnnotations map[string]string) bool {
 	_, capsuleEnabledForPvc := pvcAnnotations[string(BackupEnabledAnnotation)]
 	return capsuleEnabledForPvc
 }

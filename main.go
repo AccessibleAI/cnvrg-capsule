@@ -5,12 +5,14 @@ import (
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/apiserver"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/backup"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
+	"github.com/briandowns/spinner"
 	"github.com/manifoldco/promptui"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"os"
 	"strings"
+	"time"
 )
 
 type param struct {
@@ -33,8 +35,10 @@ var (
 	BuildVersion    string
 	cliBackupParams = []param{
 		{name: "list", shorthand: "l", value: false, usage: "list backups"},
-		{name: "delete", shorthand: "d", value: false, usage: "delete backup"},
-		{name: "id", shorthand: "", value: "", usage: "backup id"},
+		{name: "delete", shorthand: "", value: false, usage: "delete backup"},
+		{name: "create", shorthand: "c", value: false, usage: "create backup manually"},
+		{name: "download", shorthand: "d", value: false, usage: "download DB backup"},
+		{name: "restore", shorthand: "r", value: false, usage: "restore DB"},
 	}
 	rootParams = []param{
 		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
@@ -48,26 +52,6 @@ var (
 		{name: "mode", shorthand: "", value: "allinone", usage: fmt.Sprintf("%s|%s|%s", AllInOne, Api, BackupEngine)},
 	}
 )
-
-var selectBackupTemplate = &promptui.SelectTemplates{
-	Label:    "{{ . }}?",
-	Active:   "🙀 {{ .BackupId | cyan }} ({{ .Date | red }})",
-	Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
-	Selected: "🙀 {{ .BackupId | red | cyan }}",
-	Details: `
---------- Backup ----------
-{{ "Id:" | faint }}	{{ .BackupId }}
-{{ "Date:" | faint }}	{{ .Date }}
-{{ "Type:" | faint }}	{{ .ServiceType }}
-{{ "Status:" | faint }}	{{ .Status }}`,
-}
-
-var confirmTemplate = &promptui.SelectTemplates{
-	Label:    `{{ . }}?`,
-	Active:   `> {{ . | red}}`,
-	Inactive: `  {{ . | faint}} `,
-	Selected: `> {{ . | red }}`,
-}
 
 var rootCmd = &cobra.Command{
 	Use:   "cnvrg-capsule",
@@ -125,58 +109,24 @@ var cliBackupPg = &cobra.Command{
 	Short: "Backup PG",
 	Run: func(cmd *cobra.Command, args []string) {
 		if viper.GetBool("list") {
-			log.Info("getting pg backup")
-			var backups []*backup.Backup
-			for _, bucket := range backup.GetBackupBuckets() {
-				backups = append(backups, bucket.ScanBucket(backup.PgService)...)
-				for _, backup := range backups {
-					formatted := fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d",
-						backup.Date.Year(), backup.Date.Month(), backup.Date.Day(),
-						backup.Date.Hour(), backup.Date.Minute(), backup.Date.Second())
-					log.Infof("backup: %s, name: %s, date:%s, status: %s", backup.BackupId, backup.Service.GetName(), formatted, backup.Status)
-				}
-			}
+			cliListBackups()
+			return
 		}
 		if viper.GetBool("delete") {
-			log.Info("getting pg backup")
-			if viper.GetString("id") == "" {
-				var backups []*backup.Backup
-				for _, bucket := range backup.GetBackupBuckets() {
-					backups = append(backups, bucket.ScanBucket(backup.PgService)...)
-				}
-				backupSelect := promptui.Select{
-					Label:     "Select backup for deletion",
-					Items:     backups,
-					Size:      10,
-					Templates: selectBackupTemplate,
-				}
-				if len(backups) == 0 {
-					log.Info("backups list is empty, nothing to delete")
-					return
-				}
-				idx, _, err := backupSelect.Run()
-				if err != nil {
-					log.Error(err)
-					return
-				}
-				confirmDelete := promptui.Select{
-					Label:     fmt.Sprintf("Deleting %s, are you sure?", backups[idx].BackupId),
-					Items:     []string{"No", "Yes"},
-					Templates: confirmTemplate,
-				}
-				_, confirm, err := confirmDelete.Run()
-				if err != nil {
-					log.Error(err)
-					return
-				}
-				if confirm == "Yes" {
-					if err := backups[idx].Bucket.Remove(backups[idx].BackupId); err != nil {
-						log.Error(err)
-						return
-					}
-					log.Infof("%s removed", backups[idx].BackupId)
-				}
-			}
+			cliDeleteBackups()
+			return
+		}
+		if viper.GetBool("create") {
+			cliCreateBackup()
+			return
+		}
+		if viper.GetBool("download") {
+			cliDownloadBackup()
+			return
+		}
+		if viper.GetBool("restore") {
+			cliRestoreBackup()
+			return
 		}
 	},
 }
@@ -210,6 +160,239 @@ func setupCommands() {
 	rootCmd.AddCommand(cliBackup)
 	rootCmd.AddCommand(startCapsule)
 	rootCmd.AddCommand(capsuleVersion)
+
+}
+
+func cliListBackups() {
+	var backups []*backup.Backup
+	for _, bucket := range backup.GetBackupBuckets() {
+		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+		for _, backup := range backups {
+			formatted := fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d",
+				backup.Date.Year(), backup.Date.Month(), backup.Date.Day(),
+				backup.Date.Hour(), backup.Date.Minute(), backup.Date.Second())
+			log.Infof("backup: %s, name: %s, date:%s, status: %s", backup.BackupId, backup.Service.GetName(), formatted, backup.Status)
+		}
+	}
+}
+
+func cliDeleteBackups() {
+	var confirmTemplate = &promptui.SelectTemplates{
+		Label:    `{{ . }}?`,
+		Active:   `> {{ . | red}}`,
+		Inactive: `  {{ . | faint}} `,
+		Selected: `> {{ . | red }}`,
+	}
+	selectBackupDeleteTemplate := &promptui.SelectTemplates{
+		Label:    "{{ . }}?",
+		Active:   "🙀 {{ .BackupId | cyan }} ({{ .Date | red }})",
+		Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
+		Selected: "🙀 {{ .BackupId | red | cyan }}",
+		Details: `
+--------- Backup ----------
+{{ "Id:" | faint }}	{{ .BackupId }}
+{{ "Date:" | faint }}	{{ .Date }}
+{{ "Type:" | faint }}	{{ .ServiceType }}
+{{ "Status:" | faint }}	{{ .Status }}`,
+	}
+	if viper.GetString("id") == "" {
+		var backups []*backup.Backup
+		for _, bucket := range backup.GetBackupBuckets() {
+			backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+		}
+		backupSelect := promptui.Select{
+			Label:     "Select backup for deletion",
+			Items:     backups,
+			Size:      10,
+			Templates: selectBackupDeleteTemplate,
+		}
+		if len(backups) == 0 {
+			log.Info("backups list is empty, nothing to delete")
+			return
+		}
+		idx, _, err := backupSelect.Run()
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		confirmDelete := promptui.Select{
+			Label:     fmt.Sprintf("Deleting %s, are you sure?", backups[idx].BackupId),
+			Items:     []string{"No", "Yes"},
+			Templates: confirmTemplate,
+		}
+		_, confirm, err := confirmDelete.Run()
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		if confirm == "Yes" {
+			if err := backups[idx].Bucket.Remove(backups[idx].BackupId); err != nil {
+				log.Error(err)
+				return
+			}
+			log.Infof("%s removed", backups[idx].BackupId)
+		}
+	}
+}
+
+func cliCreateBackup() {
+	selectBackupCreateTemplate := &promptui.SelectTemplates{
+		Label:    "{{ . }}?",
+		Active:   `> {{ printf "%s/%s" .PvcNamespace .PvcName | cyan }}`,
+		Inactive: `  {{ printf "%s/%s" .PvcNamespace .PvcName | faint }}`,
+		Selected: `> {{ printf "%s/%s" .PvcNamespace .PvcName | cyan }}`,
+		Details: `
+--------- Create Backup ----------
+{{ "Type:" | faint }}	{{ .ServiceType }}
+{{ "Pvc Name:" | faint }}	{{ .PvcName }}
+{{ "Pvc Namespace:" | faint }}	{{ .PvcNamespace }}`,
+	}
+
+	var dsList []*backup.DiscoveryInputs
+	for _, pvc := range k8s.GetPvcs().Items {
+		if !backup.CapsuleEnabledPvc(pvc.Annotations) {
+			continue
+		}
+		dsList = append(dsList, backup.NewDiscoveryInputs(pvc.Annotations, pvc.Name, pvc.Namespace))
+
+	}
+
+	backupCreateSelect := promptui.Select{
+		Label:     "Select a backup",
+		Items:     dsList,
+		Size:      10,
+		Templates: selectBackupCreateTemplate,
+	}
+	if len(dsList) == 0 {
+		log.Info("none backups enabled for the current cluster")
+		return
+	}
+	idx, _, err := backupCreateSelect.Run()
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	ds := dsList[idx]
+	//discover pg creds
+	pgCreds, err := backup.NewPgCredsWithAutoDiscovery(ds.PvcNamespace, ds.CredsRefSecret)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	// discover destination bucket
+	bucket, err := backup.NewBucketWithAutoDiscovery(ds.PvcNamespace, ds.BucketRefSecret)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	// create backup request
+	period := ds.Period
+	rotation := ds.Rotation
+	backupServiceName := fmt.Sprintf("%s/%s", ds.PvcNamespace, ds.PvcName)
+	pgBackupService := backup.NewPgBackupService(backupServiceName, *pgCreds)
+	b := backup.NewBackup(bucket, pgBackupService, period, rotation)
+	if err := b.Service.Dump(); err != nil {
+		log.Error(err)
+		return
+	}
+}
+
+func cliDownloadBackup() {
+	selectBackupDownloadTemplate := &promptui.SelectTemplates{
+		Label:    "{{ . }}?",
+		Active:   "> {{ .BackupId | cyan }} ({{ .Date | red }})",
+		Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
+		Selected: "> {{ .BackupId | red | cyan }}",
+		Details: `
+--------- Backup ----------
+{{ "Id:" | faint }}	{{ .BackupId }}
+{{ "Date:" | faint }}	{{ .Date }}
+{{ "Type:" | faint }}	{{ .ServiceType }}
+{{ "Status:" | faint }}	{{ .Status }}`,
+	}
+	var backups []*backup.Backup
+	for _, bucket := range backup.GetBackupBuckets() {
+		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+	}
+
+	backupSelect := promptui.Select{
+		Label:     "Select backup for download",
+		Items:     backups,
+		Size:      10,
+		Templates: selectBackupDownloadTemplate,
+	}
+	if len(backups) == 0 {
+		log.Info("backups list is empty, nothing to delete")
+		return
+	}
+	idx, _, err := backupSelect.Run()
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	s := spinner.New(spinner.CharSets[27], 50*time.Millisecond)
+	s.Suffix = fmt.Sprintf("downloading DB dump to: %s", backups[idx].Service.DumpfileLocalPath())
+	s.Color("green")
+	s.Start()
+	if err := backups[idx].Service.DownloadBackupAssets(backups[idx].Bucket, backups[idx].BackupId); err != nil {
+		log.Error(err)
+		return
+	}
+	s.Stop()
+	fmt.Println("")
+	log.Info("done")
+
+}
+
+func cliRestoreBackup() {
+	selectBackupDownloadTemplate := &promptui.SelectTemplates{
+		Label:    "{{ . }}?",
+		Active:   "> {{ .BackupId | cyan }} ({{ .Date | red }})",
+		Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
+		Selected: "> {{ .BackupId | red | cyan }}",
+		Details: `
+--------- Backup ----------
+{{ "Id:" | faint }}	{{ .BackupId }}
+{{ "Date:" | faint }}	{{ .Date }}
+{{ "Type:" | faint }}	{{ .ServiceType }}
+{{ "Status:" | faint }}	{{ .Status }}`,
+	}
+	var backups []*backup.Backup
+	for _, bucket := range backup.GetBackupBuckets() {
+		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+	}
+
+	backupSelect := promptui.Select{
+		Label:     "Select backup for download",
+		Items:     backups,
+		Size:      10,
+		Templates: selectBackupDownloadTemplate,
+	}
+	if len(backups) == 0 {
+		log.Info("backups list is empty, nothing to delete")
+		return
+	}
+	idx, _, err := backupSelect.Run()
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	s := spinner.New(spinner.CharSets[27], 50*time.Millisecond)
+	s.Suffix = fmt.Sprintf("downloading DB dump to: %s", backups[idx].Service.DumpfileLocalPath())
+	s.Color("green")
+	s.Start()
+	if err := backups[idx].Service.DownloadBackupAssets(backups[idx].Bucket, backups[idx].BackupId); err != nil {
+		log.Error(err)
+		return
+	}
+	s.Stop()
+	fmt.Println("")
+	if err := backups[idx].Service.Restore(); err != nil {
+		log.Error(err)
+		return
+	}
+	log.Info("done")
 
 }
 
