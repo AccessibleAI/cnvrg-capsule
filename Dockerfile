@@ -12,4 +12,4 @@ WORKDIR /opt/app-root
 RUN ln -fs /usr/share/zoneinfo/Israel /etc/localtime \
     && apt -y update \
     && apt -y install postgresql curl jq
-COPY --from=builder /workspace/capsule .
+COPY --from=builder /workspace/capsule /opt/app-root/capsule

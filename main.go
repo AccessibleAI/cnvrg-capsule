@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/apiserver"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/backup"
@@ -39,6 +41,7 @@ var (
 		{name: "create", shorthand: "c", value: false, usage: "create backup manually"},
 		{name: "download", shorthand: "d", value: false, usage: "download DB backup"},
 		{name: "restore", shorthand: "r", value: false, usage: "restore DB"},
+		{name: "describe", shorthand: "", value: false, usage: "describe backup metadata"},
 	}
 	rootParams = []param{
 		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
@@ -126,6 +129,10 @@ var cliBackupPg = &cobra.Command{
 		}
 		if viper.GetBool("restore") {
 			cliRestoreBackup()
+			return
+		}
+		if viper.GetBool("describe") {
+			cliDescribeBackup()
 			return
 		}
 	},
@@ -393,6 +400,54 @@ func cliRestoreBackup() {
 		return
 	}
 	log.Info("done")
+
+}
+
+func cliDescribeBackup() {
+	selectBackupTemplate := &promptui.SelectTemplates{
+		Label:    "{{ . }}?",
+		Active:   "> {{ .BackupId | cyan }} ({{ .Date | red }})",
+		Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
+		Selected: "> {{ .BackupId | red | cyan }}",
+		Details: `
+--------- Backup ----------
+{{ "Id:" | faint }}	{{ .BackupId }}
+{{ "Date:" | faint }}	{{ .Date }}
+{{ "Type:" | faint }}	{{ .ServiceType }}
+{{ "Status:" | faint }}	{{ .Status }}`,
+	}
+	var backups []*backup.Backup
+	for _, bucket := range backup.GetBackupBuckets() {
+		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+	}
+
+	backupSelect := promptui.Select{
+		Label:     "Select backup for download",
+		Items:     backups,
+		Size:      10,
+		Templates: selectBackupTemplate,
+	}
+	if len(backups) == 0 {
+		log.Info("backups list is empty...")
+		return
+	}
+	idx, _, err := backupSelect.Run()
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	backupStr, err := backups[idx].Jsonify()
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	var out bytes.Buffer
+	if err := json.Indent(&out, []byte(backupStr), "", "  "); err != nil {
+		log.Error(err)
+		return
+	}
+	log.Infof("\n%s", out.Bytes())
 
 }
 
