@@ -114,31 +114,36 @@ func (b *Backup) backup() error {
 }
 
 func (b *Backup) Restore() error {
+	var restore *Restore
 
 	// Restore when status is RestoreRequest
 	for _, requestRestore := range b.Restores {
 		if requestRestore.Status == RestoreRequest {
-			log.Infof("restoring backup: %s ", b.BackupId)
-			// check if current backups is not active in another backup go routine
-			if b.active() {
-				log.Infof("Restore %s is active, skipping", b.BackupId)
-				return nil
-			}
-			// activate Restore - so other go routine won't initiate Restore process again
-			b.activate()
-			// deactivate backup
-			defer b.deactivate()
-			// run Restore
-			if err := b.Service.Restore(); err != nil {
-				requestRestore.Status = Failed
-				_ = b.SyncState()
-				return err
-			}
-			// finish restore
-			requestRestore.Status = Finished
-			if err := b.SyncState(); err != nil {
-				return err
-			}
+			restore = requestRestore
+			break
+		}
+	}
+	if restore != nil {
+		log.Infof("restoring backup: %s ", b.BackupId)
+		// check if current backups is not active in another backup go routine
+		if b.active() {
+			log.Infof("restore %s is active, skipping", b.BackupId)
+			return nil
+		}
+		// activate Restore - so other go routine won't initiate Restore process again
+		b.activate()
+		// deactivate backup
+		defer b.deactivate()
+		// run Restore
+		if err := b.Service.Restore(); err != nil {
+			restore.Status = Failed
+			_ = b.SyncState()
+			return err
+		}
+		// finish restore
+		restore.Status = Finished
+		if err := b.SyncState(); err != nil {
+			return err
 		}
 	}
 	return nil
