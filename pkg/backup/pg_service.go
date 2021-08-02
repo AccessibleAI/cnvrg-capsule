@@ -100,7 +100,7 @@ func (pgs *PgBackupService) DownloadBackupAssets(bucket Bucket, id string) error
 
 func (pgs *PgBackupService) Restore() error {
 
-	log.Infof("starting restore: %s", pgs.Dumpfile)
+	log.Infof("starting Restore: %s", pgs.Dumpfile)
 	cmdParams := append([]string{"-lc"}, strings.Join(pgs.RestoreCmd, " "))
 	log.Debugf("pg backup cmd: %s ", cmdParams)
 	cmd := exec.Command("/bin/bash", cmdParams...)
@@ -141,7 +141,7 @@ func (pgs *PgBackupService) Restore() error {
 		return err
 	}
 
-	log.Infof("restore %s is finished", pgs.Dumpfile)
+	log.Infof("Restore %s is finished", pgs.Dumpfile)
 
 	return nil
 }

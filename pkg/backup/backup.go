@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+type Restore struct {
+	Date   time.Time `json:"date"`
+	Status Status    `json:"status"`
+}
+
 type Backup struct {
 	BackupId    string      `json:"backupId"`
 	Rotation    int         `json:"rotation"`
@@ -21,6 +26,7 @@ type Backup struct {
 	Bucket      Bucket      `json:"bucket"`
 	ServiceType ServiceType `json:"serviceType"`
 	Service     Service     `json:"service"`
+	Restores    []*Restore  `json:"restores"`
 	Status      Status      `json:"status"`
 }
 
@@ -64,9 +70,9 @@ func (b *Backup) Jsonify() (string, error) {
 
 func (b *Backup) backup() error {
 
-	// if backups status is Finished - all good, backup is ready
+	// if backup status is Finished - all good, backup is ready
 	if b.Status == Finished {
-		log.Infof("backup: %s status is finished, skipping backup", b.BackupId)
+		log.Infof("backupId: %s status: %s, skipping backup", b.BackupId, b.Status)
 		return nil
 	}
 
@@ -81,29 +87,60 @@ func (b *Backup) backup() error {
 	defer b.deactivate()
 
 	// dump db
-	if err := b.setStatusAndSyncState(DumpingDB); err != nil {
+	if err := b.SetStatusAndSyncState(DumpingDB); err != nil {
 		return err
 	}
 
 	if err := b.Service.Dump(); err != nil {
-		_ = b.setStatusAndSyncState(Failed)
+		_ = b.SetStatusAndSyncState(Failed)
 		return err
 	}
 
 	// upload db dump to s3
-	if err := b.setStatusAndSyncState(UploadingDB); err != nil {
+	if err := b.SetStatusAndSyncState(UploadingDB); err != nil {
 		return err
 	}
 	if err := b.Service.UploadBackupAssets(b.Bucket, b.BackupId); err != nil {
-		_ = b.setStatusAndSyncState(Failed)
+		_ = b.SetStatusAndSyncState(Failed)
 		return err
 	}
 
 	// finish backup
-	if err := b.setStatusAndSyncState(Finished); err != nil {
+	if err := b.SetStatusAndSyncState(Finished); err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func (b *Backup) Restore() error {
+
+	// Restore when status is Restore
+	for _, requestRestore := range b.Restores {
+		if requestRestore.Status == RestoreRequest {
+			log.Infof("restoring backup: %s ", b.BackupId)
+			// check if current backups is not active in another backup go routine
+			if b.active() {
+				log.Infof("Restore %s is active, skipping", b.BackupId)
+				return nil
+			}
+			// activate Restore - so other go routine won't initiate Restore process again
+			b.activate()
+			// deactivate backup
+			defer b.deactivate()
+			// run Restore
+			if err := b.Service.Restore(); err != nil {
+				requestRestore.Status = Failed
+				_ = b.SyncState()
+				return err
+			}
+			// finish restore
+			requestRestore.Status = Finished
+			if err := b.SyncState(); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -283,8 +320,13 @@ func (b *Backup) UnmarshalJSON(bytes []byte) error {
 	return nil
 }
 
-func (b *Backup) setStatusAndSyncState(s Status) error {
+func (b *Backup) SetStatusAndSyncState(s Status) error {
+
 	b.Status = s
+	return b.SyncState()
+}
+
+func (b *Backup) SyncState() error {
 	jsonStr, err := b.Jsonify()
 	if err != nil {
 		log.Errorf("error jsonify, err: %s", err)

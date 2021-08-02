@@ -23,12 +23,14 @@ type Bucket interface {
 }
 
 const (
-	Initialized Status = "initialized"
-	DumpingDB   Status = "dumpingdb"
-	UploadingDB Status = "uploadingdb"
-	Failed      Status = "failed"
-	Finished    Status = "finished"
-	Indexfile   string = "indexfile.json"
+	Initialized    Status = "initialized"
+	DumpingDB      Status = "dumpingdb"
+	UploadingDB    Status = "uploadingdb"
+	Failed         Status = "failed"
+	Finished       Status = "finished"
+	RestoreRequest Status = "restorerequest"
+	Restored       Status = "restored"
+	Indexfile      string = "indexfile.json"
 )
 
 func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {

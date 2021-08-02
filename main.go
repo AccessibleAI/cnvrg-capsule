@@ -39,8 +39,8 @@ var (
 		{name: "list", shorthand: "l", value: false, usage: "list backups"},
 		{name: "delete", shorthand: "", value: false, usage: "delete backup"},
 		{name: "create", shorthand: "c", value: false, usage: "create backup manually"},
-		{name: "download", shorthand: "d", value: false, usage: "download DB backup"},
-		{name: "restore", shorthand: "r", value: false, usage: "restore DB"},
+		{name: "download", shorthand: "d", value: false, usage: "download backup"},
+		{name: "restore", shorthand: "r", value: false, usage: "request backup restore"},
 		{name: "describe", shorthand: "", value: false, usage: "describe backup metadata"},
 	}
 	rootParams = []param{
@@ -316,7 +316,7 @@ func cliDownloadBackup() {
 {{ "Id:" | faint }}	{{ .BackupId }}
 {{ "Date:" | faint }}	{{ .Date }}
 {{ "Type:" | faint }}	{{ .ServiceType }}
-{{ "Status:" | faint }}	{{ .Status }}`,
+{{ "Status:" | faint }}	{{ if eq .Status "finished" }}{{ printf "%s" .Status | green }} {{ else }} {{ printf "%s" .Status | red }} {{ end }} `,
 	}
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
@@ -363,7 +363,7 @@ func cliRestoreBackup() {
 {{ "Id:" | faint }}	{{ .BackupId }}
 {{ "Date:" | faint }}	{{ .Date }}
 {{ "Type:" | faint }}	{{ .ServiceType }}
-{{ "Status:" | faint }}	{{ .Status }}`,
+{{ "Status:" | faint }}	{{ if eq .Status "finished" }}{{ printf "%s" .Status | green }} {{ else }} {{ printf "%s" .Status | red }} {{ end }} `,
 	}
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
@@ -385,19 +385,19 @@ func cliRestoreBackup() {
 		log.Error(err)
 		return
 	}
-	s := spinner.New(spinner.CharSets[27], 50*time.Millisecond)
-	s.Suffix = fmt.Sprintf("downloading DB dump to: %s", backups[idx].Service.DumpfileLocalPath())
-	s.Color("green")
-	s.Start()
-	if err := backups[idx].Service.DownloadBackupAssets(backups[idx].Bucket, backups[idx].BackupId); err != nil {
-		log.Error(err)
-		return
+	backupForRestore := backups[idx]
+	// request backup restore
+	if backupForRestore.Status != backup.Finished {
+		log.Errorf("backup status: %s, backup restore request works only for Finished backups", backups[idx].Status)
 	}
-	s.Stop()
-	fmt.Println("")
-	if err := backups[idx].Service.Restore(); err != nil {
-		log.Error(err)
-		return
+	restoreRequest := &backup.Restore{
+		Date:   time.Now(),
+		Status: backup.RestoreRequest,
+	}
+	if len(backupForRestore.Restores) == 0 {
+		backupForRestore.Restores = []*backup.Restore{restoreRequest}
+	} else {
+		backupForRestore.Restores = append(backupForRestore.Restores, restoreRequest)
 	}
 	log.Info("done")
 
