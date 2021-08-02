@@ -36,6 +36,7 @@ const (
 var (
 	BuildVersion    string
 	cliBackupParams = []param{
+		{name: "id", shorthand: "", value: "", usage: "backup id"},
 		{name: "list", shorthand: "l", value: false, usage: "list backups"},
 		{name: "delete", shorthand: "", value: false, usage: "delete backup"},
 		{name: "create", shorthand: "c", value: false, usage: "create backup manually"},
@@ -174,11 +175,13 @@ func cliListBackups() {
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
 		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
-		for _, backup := range backups {
-			formatted := fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d",
-				backup.Date.Year(), backup.Date.Month(), backup.Date.Day(),
-				backup.Date.Hour(), backup.Date.Minute(), backup.Date.Second())
-			log.Infof("backup: %s, name: %s, date:%s, status: %s", backup.BackupId, backup.Service.GetName(), formatted, backup.Status)
+		if len(backups) == 0 {
+			log.Info("backup list is empty!")
+			return
+		}
+		for _, b := range backups {
+			formatted := fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d", b.Date.Year(), b.Date.Month(), b.Date.Day(), b.Date.Hour(), b.Date.Minute(), b.Date.Second())
+			log.Infof("backup: %s, name: %s, date:%s, status: %s", b.BackupId, b.Service.GetName(), formatted, b.Status)
 		}
 	}
 }
@@ -190,55 +193,29 @@ func cliDeleteBackups() {
 		Inactive: `  {{ . | faint}} `,
 		Selected: `> {{ . | red }}`,
 	}
-	selectBackupDeleteTemplate := &promptui.SelectTemplates{
-		Label:    "{{ . }}?",
-		Active:   "🙀 {{ .BackupId | cyan }} ({{ .Date | red }})",
-		Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
-		Selected: "🙀 {{ .BackupId | red | cyan }}",
-		Details: `
---------- Backup ----------
-{{ "Id:" | faint }}	{{ .BackupId }}
-{{ "Date:" | faint }}	{{ .Date }}
-{{ "Type:" | faint }}	{{ .ServiceType }}
-{{ "Status:" | faint }}	{{ .Status }}`,
+
+	b := selectBackup("🙀")
+	if b == nil {
+		os.Exit(1)
 	}
-	if viper.GetString("id") == "" {
-		var backups []*backup.Backup
-		for _, bucket := range backup.GetBackupBuckets() {
-			backups = append(backups, bucket.ScanBucket(backup.PgService)...)
-		}
-		backupSelect := promptui.Select{
-			Label:     "Select backup for deletion",
-			Items:     backups,
-			Size:      10,
-			Templates: selectBackupDeleteTemplate,
-		}
-		if len(backups) == 0 {
-			log.Info("backups list is empty, nothing to delete")
-			return
-		}
-		idx, _, err := backupSelect.Run()
-		if err != nil {
+
+	confirmDelete := promptui.Select{
+		Label:     fmt.Sprintf("Deleting %s, are you sure?", b.BackupId),
+		Items:     []string{"No", "Yes"},
+		Templates: confirmTemplate,
+	}
+	_, confirm, err := confirmDelete.Run()
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	if confirm == "Yes" {
+		if err := b.Bucket.Remove(b.BackupId); err != nil {
 			log.Error(err)
 			return
 		}
-		confirmDelete := promptui.Select{
-			Label:     fmt.Sprintf("Deleting %s, are you sure?", backups[idx].BackupId),
-			Items:     []string{"No", "Yes"},
-			Templates: confirmTemplate,
-		}
-		_, confirm, err := confirmDelete.Run()
-		if err != nil {
-			log.Error(err)
-			return
-		}
-		if confirm == "Yes" {
-			if err := backups[idx].Bucket.Remove(backups[idx].BackupId); err != nil {
-				log.Error(err)
-				return
-			}
-			log.Infof("%s removed", backups[idx].BackupId)
-		}
+		log.Infof("%s removed", b.BackupId)
 	}
 }
 
@@ -404,44 +381,15 @@ func cliRestoreBackup() {
 }
 
 func cliDescribeBackup() {
-	selectBackupTemplate := &promptui.SelectTemplates{
-		Label:    "{{ . }}?",
-		Active:   "> {{ .BackupId | cyan }} ({{ .Date | red }})",
-		Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
-		Selected: "> {{ .BackupId | red | cyan }}",
-		Details: `
---------- Backup ----------
-{{ "Id:" | faint }}	{{ .BackupId }}
-{{ "Date:" | faint }}	{{ .Date }}
-{{ "Type:" | faint }}	{{ .ServiceType }}
-{{ "Status:" | faint }}	{{ .Status }}`,
+	b := selectBackup(">")
+	if b == nil {
+		os.Exit(1)
 	}
-	var backups []*backup.Backup
-	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
-	}
-
-	backupSelect := promptui.Select{
-		Label:     "Select backup for download",
-		Items:     backups,
-		Size:      10,
-		Templates: selectBackupTemplate,
-	}
-	if len(backups) == 0 {
-		log.Info("backups list is empty...")
-		return
-	}
-	idx, _, err := backupSelect.Run()
+	backupStr, err := b.Jsonify()
 	if err != nil {
 		log.Error(err)
 		return
 	}
-	backupStr, err := backups[idx].Jsonify()
-	if err != nil {
-		log.Error(err)
-		return
-	}
-
 	var out bytes.Buffer
 	if err := json.Indent(&out, []byte(backupStr), "", "  "); err != nil {
 		log.Error(err)
@@ -449,6 +397,52 @@ func cliDescribeBackup() {
 	}
 	log.Infof("\n%s", out.Bytes())
 
+}
+
+func selectBackup(selector string) *backup.Backup {
+	template := &promptui.SelectTemplates{
+		Label:    "{{ . }}?",
+		Active:   fmt.Sprintf("%s {{ .BackupId | cyan }} ({{ .Date | red }})", selector),
+		Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
+		Selected: fmt.Sprintf("%s {{ .BackupId | red | cyan }}", selector),
+		Details: `
+--------- Backup ----------
+{{ "Id:" | faint }}	{{ .BackupId }}
+{{ "Date:" | faint }}	{{ .Date }}
+{{ "Type:" | faint }}	{{ .ServiceType }}
+{{ "Status:" | faint }}	{{ if eq .Status "finished" }}{{ printf "%s" .Status | green }} {{ else }} {{ printf "%s" .Status | red }} {{ end }} `,
+	}
+	var backups []*backup.Backup
+	for _, bucket := range backup.GetBackupBuckets() {
+		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+	}
+	if len(backups) == 0 {
+		log.Info("backup list is empty!")
+		return nil
+	}
+	if viper.GetString("id") != "" {
+		for _, b := range backups {
+			if b.BackupId == viper.GetString("id") {
+				return b
+			}
+		}
+		log.Infof("backupId: %s not found", viper.GetString("id"))
+		return nil
+	}
+	backupSelect := promptui.Select{
+		Label:     "Select backup for download",
+		Items:     backups,
+		Size:      10,
+		Templates: template,
+	}
+
+	var err error
+	idx, _, err := backupSelect.Run()
+	if err != nil {
+		log.Error(err)
+		return nil
+	}
+	return backups[idx]
 }
 
 func setupLogging() {

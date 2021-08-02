@@ -115,7 +115,7 @@ func (b *Backup) backup() error {
 
 func (b *Backup) Restore() error {
 
-	// Restore when status is Restore
+	// Restore when status is RestoreRequest
 	for _, requestRestore := range b.Restores {
 		if requestRestore.Status == RestoreRequest {
 			log.Infof("restoring backup: %s ", b.BackupId)
@@ -270,6 +270,12 @@ func (b *Backup) UnmarshalJSON(bytes []byte) error {
 		return err
 	}
 
+	// unmarshal restores
+	if err := json.Unmarshal(*objMap["restores"], &b.Restores); err != nil {
+		log.Error(err)
+		return err
+	}
+
 	// unmarshal status
 	if err := json.Unmarshal(*objMap["status"], &b.Status); err != nil {
 		log.Error(err)
@@ -383,6 +389,7 @@ func NewBackup(bucket Bucket, backupService Service, period string, rotation int
 		Service:     backupService,
 		Period:      getPeriodInSeconds(period),
 		Rotation:    rotation,
+		Restores:    []*Restore{},
 	}
 	log.Debugf("new backup initiated: %#v", b)
 	return b
