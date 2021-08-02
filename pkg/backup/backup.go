@@ -349,7 +349,7 @@ func Run() {
 	log.Info("starting backup service...")
 	go discoverBackups()
 	go discoverCnvrgAppBackupBucketConfiguration(BucketsToWatchChan)
-	go scanBucketForBackupRequests(BucketsToWatchChan)
+	go scanBucketForBackupOrRestoreRequests(BucketsToWatchChan)
 }
 
 func NewDiscoveryInputs(inputs map[string]string, pvcName, ns string) *DiscoveryInputs {
@@ -490,12 +490,15 @@ func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
 	}
 }
 
-func scanBucketForBackupRequests(bb <-chan Bucket) {
+func scanBucketForBackupOrRestoreRequests(bb <-chan Bucket) {
 	for bucket := range bb {
 		pgBackups := bucket.ScanBucket(PgService)
 		rotateBackups(pgBackups)
 		for _, pgBackup := range bucket.ScanBucket(PgService) {
+			// run backups
 			go pgBackup.backup()
+			// run restores
+			go pgBackup.Restore()
 		}
 	}
 }

@@ -330,51 +330,26 @@ func cliDownloadBackup() {
 }
 
 func cliRestoreBackup() {
-	selectBackupDownloadTemplate := &promptui.SelectTemplates{
-		Label:    "{{ . }}?",
-		Active:   "> {{ .BackupId | cyan }} ({{ .Date | red }})",
-		Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
-		Selected: "> {{ .BackupId | red | cyan }}",
-		Details: `
---------- Backup ----------
-{{ "Id:" | faint }}	{{ .BackupId }}
-{{ "Date:" | faint }}	{{ .Date }}
-{{ "Type:" | faint }}	{{ .ServiceType }}
-{{ "Status:" | faint }}	{{ if eq .Status "finished" }}{{ printf "%s" .Status | green }} {{ else }} {{ printf "%s" .Status | red }} {{ end }} `,
+	b := selectBackup(">")
+	if b == nil {
+		os.Exit(1)
 	}
-	var backups []*backup.Backup
-	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
-	}
-
-	backupSelect := promptui.Select{
-		Label:     "Select backup for download",
-		Items:     backups,
-		Size:      10,
-		Templates: selectBackupDownloadTemplate,
-	}
-	if len(backups) == 0 {
-		log.Info("backups list is empty, nothing to delete")
-		return
-	}
-	idx, _, err := backupSelect.Run()
-	if err != nil {
-		log.Error(err)
-		return
-	}
-	backupForRestore := backups[idx]
 	// request backup restore
-	if backupForRestore.Status != backup.Finished {
-		log.Errorf("backup status: %s, backup restore request works only for Finished backups", backups[idx].Status)
+	if b.Status != backup.Finished {
+		log.Errorf("backup status: %s, backup restore request works only for Finished backups", b.Status)
 	}
 	restoreRequest := &backup.Restore{
 		Date:   time.Now(),
 		Status: backup.RestoreRequest,
 	}
-	if len(backupForRestore.Restores) == 0 {
-		backupForRestore.Restores = []*backup.Restore{restoreRequest}
+	if len(b.Restores) == 0 {
+		b.Restores = []*backup.Restore{restoreRequest}
 	} else {
-		backupForRestore.Restores = append(backupForRestore.Restores, restoreRequest)
+		b.Restores = append(b.Restores, restoreRequest)
+	}
+	if err := b.SyncState(); err != nil {
+		log.Error(err)
+		os.Exit(1)
 	}
 	log.Info("done")
 

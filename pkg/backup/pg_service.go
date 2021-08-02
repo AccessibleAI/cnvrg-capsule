@@ -165,6 +165,7 @@ func NewPgCredsWithAutoDiscovery(ns, pgSecretName string) (*PgCreds, error) {
 func NewPgBackupService(name string, creds PgCreds) *PgBackupService {
 	dumpfile := fmt.Sprintf("%s-pgdump.tar", shortuuid.New())
 	localDumpPath := fmt.Sprintf("%s/%s", viper.GetString("dumpdir"), dumpfile)
+	connStr := fmt.Sprintf("--dbname=postgresql://%s:%s@%s:5432/postgres", creds.User, creds.Pass, creds.Host)
 	dumpCmd := []string{
 		"2>&1", // for some reason pg_dump with verbose mode outputs to stderr (wtf?)
 		"pg_dump",
@@ -174,9 +175,13 @@ func NewPgBackupService(name string, creds PgCreds) *PgBackupService {
 		"--verbose",
 	}
 	restoreCmd := []string{
-		"2>&1", // for some reason pg_dump with verbose mode outputs to stderr (wtf?)
+		"2>&1", // for some reason pg_restore with verbose mode outputs to stderr (wtf?)
+		fmt.Sprintf(`psql %s -c "ALTER DATABASE %s WITH ALLOW_CONNECTIONS false"`, connStr, creds.DbName),
+		"&&",
+		fmt.Sprintf(`psql %s -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s'"`, connStr, creds.DbName),
+		"&&",
 		"pg_restore",
-		fmt.Sprintf("--dbname=postgresql://%s:%s@%s:5432/%s", creds.User, creds.Pass, creds.Host, creds.DbName),
+		connStr,
 		"--clean",
 		"--create",
 		"--exit-on-error",
