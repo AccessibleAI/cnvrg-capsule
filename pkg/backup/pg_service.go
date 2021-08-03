@@ -100,7 +100,7 @@ func (pgs *PgBackupService) DownloadBackupAssets(bucket Bucket, id string) error
 
 func (pgs *PgBackupService) Restore() error {
 
-	log.Infof("starting Restore: %s", pgs.Dumpfile)
+	log.Infof("starting restore: %s", pgs.Dumpfile)
 	cmdParams := append([]string{"-lc"}, strings.Join(pgs.RestoreCmd, " "))
 	log.Debugf("pg backup cmd: %s ", cmdParams)
 	cmd := exec.Command("/bin/bash", cmdParams...)
@@ -175,11 +175,11 @@ func NewPgBackupService(name string, creds PgCreds) *PgBackupService {
 		"--verbose",
 	}
 	restoreCmd := []string{
-		"2>&1", // for some reason pg_restore with verbose mode outputs to stderr (wtf?)
 		fmt.Sprintf(`psql %s -c "ALTER DATABASE %s WITH ALLOW_CONNECTIONS false"`, connStrForRestore, creds.DbName),
 		"&&",
 		fmt.Sprintf(`psql %s -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s'"`, connStrForRestore, creds.DbName),
 		"&&",
+		"2>&1", // for some reason pg_restore with verbose mode outputs to stderr (wtf?)
 		"pg_restore",
 		connStrForRestore,
 		"--clean",

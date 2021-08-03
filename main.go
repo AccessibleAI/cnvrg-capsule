@@ -43,6 +43,19 @@ var (
 		{name: "download", shorthand: "d", value: false, usage: "download backup"},
 		{name: "restore", shorthand: "r", value: false, usage: "request backup restore"},
 		{name: "describe", shorthand: "", value: false, usage: "describe backup metadata"},
+		{name: "endpoint", shorthand: "", value: "", usage: "S3 end point"},
+		{name: "region", shorthand: "", value: "", usage: "S3 region"},
+		{name: "access-key", shorthand: "", value: "", usage: "S3 access key"},
+		{name: "secret-key", shorthand: "", value: "", usage: "S3 secret key"},
+		{name: "use-ssl", shorthand: "", value: false, usage: "use ssl to access to S3"},
+		{name: "bucket-name", shorthand: "", value: "", usage: "bucket name with backups"},
+		{name: "dst-dir", shorthand: "", value: "", usage: "bucket backups base directory"},
+		{name: "account-name", shorthand: "", value: "", usage: "Azure account name"},
+		{name: "account-key", shorthand: "", value: "", usage: "Azure account key"},
+		{name: "key-json", shorthand: "", value: "", usage: "Key.json GCP credentials file"},
+		{name: "project-id", shorthand: "", value: "", usage: "GCP project id "},
+		{name: "bucket-type", shorthand: "", value: "minio", usage:
+		fmt.Sprintf("bucket type, one of: %s|%s|%s|%s", backup.MinioBucketType, backup.AwsBucketType, backup.AzureBucketType, backup.GcpBucketType)},
 	}
 	rootParams = []param{
 		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
@@ -136,6 +149,10 @@ var cliBackupPg = &cobra.Command{
 			cliDescribeBackup()
 			return
 		}
+		if viper.GetBool("dump-bucketfile-sample") {
+			cliDumpBucketSample()
+			return
+		}
 	},
 }
 
@@ -160,15 +177,49 @@ func setupCommands() {
 	viper.SetEnvPrefix("CNVRG_CAPSULE")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	// Setup commands
-
+	//setParams(cliIndexfileParams, cliIndexfile)
 	setParams(startCapsuleParams, startCapsule)
 	setParams(rootParams, rootCmd)
 	setParams(cliBackupParams, cliBackupPg)
 	cliBackup.AddCommand(cliBackupPg)
+	//rootCmd.AddCommand(cliIndexfile)
 	rootCmd.AddCommand(cliBackup)
 	rootCmd.AddCommand(startCapsule)
 	rootCmd.AddCommand(capsuleVersion)
 
+}
+
+func cliDumpBucketSample() {
+	log.Infof("pg statefile sample")
+	bucketType := selectBucketType()
+	log.Infof("bucket type: %s", *bucketType)
+	var bucket backup.Bucket
+	switch *bucketType {
+	case backup.MinioBucketType:
+		bucket = backup.NewMinioBucket("endpoint", "region", "access_key", "secret_key", "cnvrg_storage", "bucket_destination_dir")
+		break
+	case backup.AwsBucketType:
+		bucket = backup.NewAwsBucket("region", "access_key", "secret_key", "cnvrg_storage", "cnvrg-smart-backups")
+		break
+	case backup.AzureBucketType:
+		bucket = backup.NewAzureBucket("account_name", "account_key", "cnvrg_storage", "cnvrg-smart-backups")
+		break
+	case backup.GcpBucketType:
+		bucket = backup.NewGcpBucket("gcp_key_json_file", "gcp_project_id", "cnvrg_storage", "cnvrg-smart-backups")
+		break
+	}
+	bl := []backup.Bucket{bucket}
+	jsonBytes, err := json.Marshal(bl)
+	if err != nil {
+		log.Errorf("can't marshal struct, err: %v", err)
+		return
+	}
+	var out bytes.Buffer
+	if err := json.Indent(&out, jsonBytes, "", "  "); err != nil {
+		log.Error(err)
+		return
+	}
+	log.Infof("\n%s", out.Bytes())
 }
 
 func cliListBackups() {
@@ -418,6 +469,39 @@ func selectBackup(selector string) *backup.Backup {
 		return nil
 	}
 	return backups[idx]
+}
+
+func selectBucketType() *backup.BucketType {
+	prompt := promptui.Select{
+		Label: "Select bucket type",
+		Items: []backup.BucketType{
+			backup.MinioBucketType,
+			backup.AwsBucketType,
+			backup.AzureBucketType,
+			backup.GcpBucketType,
+		},
+	}
+
+	_, result, err := prompt.Run()
+	bucketType := backup.BucketType(result)
+	if err != nil {
+		log.Error(err)
+		return nil
+	}
+	return &bucketType
+}
+
+func readBucketsFromFile() []backup.Bucket {
+	//bucketFile := viper.GetString("bucketfile")
+	//if bucketFile != "" {
+	//	dat, err := ioutil.ReadFile(bucketFile)
+	//	if err != nil {
+	//		log.Error(err)
+	//		os.Exit(1)
+	//	}
+	//	bl := []backup.Bucket
+	//}
+	return nil
 }
 
 func setupLogging() {

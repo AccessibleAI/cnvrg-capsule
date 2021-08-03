@@ -196,7 +196,7 @@ func (g *GcpBucket) ScanBucket(serviceType ServiceType) []*Backup {
 			log.Error(err)
 			return nil
 		}
-		if strings.Contains(attrs.Name, Indexfile) {
+		if strings.Contains(attrs.Name, Statefile) {
 			rc, err := client.Bucket(g.Bucket).Object(attrs.Name).NewReader(ctx)
 			if err != nil {
 				log.Error(err)

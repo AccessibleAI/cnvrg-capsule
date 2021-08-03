@@ -6,7 +6,6 @@ import (
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	"strconv"
 	"sync"
 	"time"
@@ -165,7 +164,7 @@ func (b *Backup) createBackupRequest() error {
 	if err != nil {
 		return err
 	}
-	_ = b.Bucket.SyncMetadataState(jsonStr, b.getBackupIndexFileName())
+	_ = b.Bucket.SyncMetadataState(jsonStr, b.getBackupStateFileName())
 
 	return nil
 }
@@ -195,8 +194,8 @@ func (b *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
 	return false
 }
 
-func (b *Backup) getBackupIndexFileName() string {
-	return fmt.Sprintf("%s/%s", b.BackupId, Indexfile)
+func (b *Backup) getBackupStateFileName() string {
+	return fmt.Sprintf("%s/%s", b.BackupId, Statefile)
 }
 
 func (b *Backup) active() bool {
@@ -343,7 +342,7 @@ func (b *Backup) SyncState() error {
 		log.Errorf("error jsonify, err: %s", err)
 		return err
 	}
-	if err := b.Bucket.SyncMetadataState(jsonStr, b.getBackupIndexFileName()); err != nil {
+	if err := b.Bucket.SyncMetadataState(jsonStr, b.getBackupStateFileName()); err != nil {
 		log.Errorf("error syncing metadata state, err: %s", err)
 		return err
 	}
@@ -430,32 +429,30 @@ func GetBackupBuckets() (bucket []Bucket) {
 }
 
 func discoverBackups() {
-	//if auto-discovery is true
-	if viper.GetBool("auto-discovery") {
-		for {
+	for {
 
-			for _, pvc := range k8s.GetPvcs().Items {
+		for _, pvc := range k8s.GetPvcs().Items {
 
-				if !CapsuleEnabledPvc(pvc.Annotations) {
-					continue
-				}
-
-				ds := NewDiscoveryInputs(pvc.Annotations, pvc.Name, pvc.Namespace)
-				if ds == nil {
-					log.Error("empty discover inputs, validate pvc annotations, skipping backup ")
-					continue
-				}
-
-				if !ShouldBackup(ds) {
-					continue // backup not required, either backup disabled or the ns is blocked for backups
-				}
-				_ = discoverPgBackups(ds)
-
+			if !CapsuleEnabledPvc(pvc.Annotations) {
+				continue
 			}
 
-			time.Sleep(60 * time.Second)
+			ds := NewDiscoveryInputs(pvc.Annotations, pvc.Name, pvc.Namespace)
+			if ds == nil {
+				log.Error("empty discover inputs, validate pvc annotations, skipping backup ")
+				continue
+			}
+
+			if !ShouldBackup(ds) {
+				continue // backup not required, either backup disabled or the ns is blocked for backups
+			}
+			_ = discoverPgBackups(ds)
+
 		}
+
+		time.Sleep(60 * time.Second)
 	}
+
 }
 
 func discoverPgBackups(ds *DiscoveryInputs) error {
@@ -485,14 +482,13 @@ func discoverPgBackups(ds *DiscoveryInputs) error {
 
 func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
 
-	if viper.GetBool("auto-discovery") { // auto-discovery is true
-		for {
-			for _, b := range GetBackupBuckets() {
-				bc <- b
-			}
-			time.Sleep(10 * time.Second)
+	for {
+		for _, b := range GetBackupBuckets() {
+			bc <- b
 		}
+		time.Sleep(10 * time.Second)
 	}
+
 }
 
 func scanBucketForBackupOrRestoreRequests(bb <-chan Bucket) {

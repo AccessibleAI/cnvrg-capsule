@@ -90,7 +90,7 @@ func (m *MinioBucket) ScanBucket(serviceType ServiceType) []*Backup {
 			return nil
 		}
 		// only index files required for bucket scan
-		if strings.Contains(object.Key, Indexfile) {
+		if strings.Contains(object.Key, Statefile) {
 			stream, err := mc.GetObject(context.Background(), m.Bucket, object.Key, minio.GetObjectOptions{})
 			if err != nil {
 				log.Errorf("can't get object: %s, err: %s", object.Key, err)

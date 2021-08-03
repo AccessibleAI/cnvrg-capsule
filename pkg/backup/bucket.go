@@ -30,7 +30,7 @@ const (
 	Finished       Status = "finished"
 	RestoreRequest Status = "restorerequest"
 	Restored       Status = "restored"
-	Indexfile      string = "indexfile.json"
+	Statefile      string = "statefile.json"
 )
 
 func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {

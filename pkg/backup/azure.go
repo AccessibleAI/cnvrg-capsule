@@ -152,7 +152,7 @@ func (a *AzureBucket) ScanBucket(serviceType ServiceType) []*Backup {
 		}
 		marker = listBlob.NextMarker
 		for _, object := range listBlob.Segment.BlobItems {
-			if strings.Contains(object.Name, Indexfile) {
+			if strings.Contains(object.Name, Statefile) {
 				blobURL := containerURL.NewBlockBlobURL(object.Name)
 				dr, err := blobURL.Download(context.Background(), 0, azblob.CountToEnd, azblob.BlobAccessConditions{}, false, azblob.ClientProvidedKeyOptions{})
 				if err != nil {
