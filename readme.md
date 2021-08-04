@@ -44,6 +44,11 @@ Supported setups:
 
 ![many to 1](./docs/many-to-1.png)
 
+![many to 1 multiple folders](./docs/many-to-1-multiple-folders.png)
+
+![many to many](./docs/many-to-many.png)
+
+![1 to 1 but many capsules](./docs/one-to-one-but-many.png)
 
 The backup flow:
 
