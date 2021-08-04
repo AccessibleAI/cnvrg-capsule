@@ -19,13 +19,17 @@ The cnvrg capsule service is designed as a simple, reliable backup and restore s
 The cnvrg capsule doesn’t manage any internal state, which makes this service completely stateless. Stateless allow to deploy and scale cnvrg capsule easily. 
 The cnvrg capsule backups is depends on two components:
 1. The S3 bucket - which is acts as backend storage for backups 
-2. The `backupIndex.json` file, which is saved alongside with the actual backup and holds all the information about the actual backup, when it has been made, if the backup process has been successfully finished, etc. 
+2. The `statefile.json` file, which is saved alongside with the actual backup and holds all the information about the actual backup, when it has been made, if the backup process has been successfully finished, etc. 
 
-These two concepts (S3 bucket and `backupIndex.json`) make cnvrg capsule backups to be completely agnostic to any other external systems, so even when a potential user will completely loose the complete K8s cluster and all the storage disk, until the S3 bucket will be available, anyone can execute the data restore, based on the actual backup file and the `backupIndex.json` that hold all the necessary metadata for the successful restore.
+These two concepts (S3 bucket and `statefile.json`) make cnvrg capsule backups to be completely agnostic to any external systems, even when a potential user will completely loos the complete K8s cluster and all the storage disks, until the S3 bucket will be available, the data can br restore based on the actual backup file and the `statefile.json` that hold all the necessary metadata for the successful restore.
 
 
 ### Cnvrg Capsule - architecture 
-Capsule has been designed as a standalone tool, but it provides 3 interfaces for backup management. The backup management includes operations like automatic backup discovery, configuration of rotation and period, etc. Probably the most efficient way to use a capsule is in conjunction with `cnvrg-operator` and the `CnvrgApp` custom resource. 
+Capsule has been designed as a standalone tool, but it provides 3 interfaces for backup management. 
+The backup management includes operations like automatic backup discovery, 
+configuration of rotation and period, etc. 
+Probably the most efficient way to use a capsule is in conjunction
+with `cnvrg-operator` and the `CnvrgApp` custom resource. 
 
 The interfaces
 
@@ -57,8 +61,8 @@ Capsule backup engine includes 4 main internal processes (goroutines)
 * The 2, and 3 is are responsible for executing actual backups
 * The 4 is an HTTP Rest API 
 
-1. Discover PG backups: this infinite loop, list all the existing `CnvrgApp` each X seconds in the cluster, checking if PG backup has been enabled, and if yes, creating a  backup request (the `backupIndex.json`) file to destination S3 bucket
-2. Discover bucket configuration for backups: this infinite loop, list all the existing `CnvrgApp` objects, extract the destination bucket connection details and send them to `BucketsToWatchChan channel 
+1. Discover PG backups: this infinite loop, list all the existing `CnvrgApp` each X seconds in the cluster, checking if PG backup has been enabled, and if yes, creating a  backup request (the `statefile.json`) file to destination S3 bucket
+2. Discover bucket configuration for backups: this infinite loop, list all the existing `CnvrgApp` objects, extract the destination bucket connection details and send them to `BucketsToWatchChan` channel 
 3. Scan bucket for backup requests: this infinite loop, receive a S3 bucket object over the channel, and execute bucket scan for incomplete backup request, and then initiate actual backup process.
 
 ### Usage 
