@@ -39,9 +39,11 @@ Architecture schema:
 
 
 Supported setups:
-[1-to-1](./docs/1-to-1.png)
 
-[many-to-1](./docs/many-to-1.png)
+[1 to 1](./docs/1-to-1.png)
+
+[many to 1](./docs/many-to-1.png)
+
 
 The backup flow:
 
