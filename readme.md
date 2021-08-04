@@ -38,7 +38,7 @@ Architecture schema:
 ![capsule schema](./docs/schema.png)
 
 
-Supported setups:
+Deployment options:
 
 ![1 to 1](./docs/1-to-1.png)
 
