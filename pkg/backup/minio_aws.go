@@ -78,7 +78,7 @@ func (m *MinioBucket) Remove(backupId string) error {
 	return nil
 }
 
-func (m *MinioBucket) ScanBucket(serviceType ServiceType) []*Backup {
+func (m *MinioBucket) ScanBucket(serviceType ServiceType, requestType BackupRequestType) []*Backup {
 	log.Infof("scanning bucket for serviceType: %s", serviceType)
 	var backups []*Backup
 	mc := GetMinioClient(m)
@@ -106,7 +106,7 @@ func (m *MinioBucket) ScanBucket(serviceType ServiceType) []*Backup {
 				log.Errorf("error unmarshal Backup request, object: %s, err: %s", object.Key, err)
 				continue
 			}
-			if backup.ServiceType == serviceType {
+			if backup.ServiceType == serviceType && backup.RequestType == requestType {
 				backups = append(backups, &backup)
 			}
 		}

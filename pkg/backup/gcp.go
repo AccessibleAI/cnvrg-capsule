@@ -29,7 +29,7 @@ const (
 )
 
 func (g *GcpBucket) Ping() error {
-	
+
 	ctx := context.Background()
 	expectedHash, _ := shortid.Generate()
 	fullObjectName := fmt.Sprintf("%s/%s", g.GetDstDir(), "ping")
@@ -113,7 +113,7 @@ func (g *GcpBucket) Remove(backupId string) error {
 }
 
 func (g *GcpBucket) UploadFile(path, objectName string) error {
-	
+
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
 	if err != nil {
@@ -144,7 +144,7 @@ func (g *GcpBucket) UploadFile(path, objectName string) error {
 }
 
 func (g *GcpBucket) DownloadFile(objectName, localFile string) error {
-	
+
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
 	if err != nil {
@@ -173,8 +173,8 @@ func (g *GcpBucket) DownloadFile(objectName, localFile string) error {
 	return nil
 }
 
-func (g *GcpBucket) ScanBucket(serviceType ServiceType) []*Backup {
-	
+func (g *GcpBucket) ScanBucket(serviceType ServiceType, requestType BackupRequestType) []*Backup {
+
 	log.Infof("scanning bucket for serviceType: %s", serviceType)
 	var backups []*Backup
 	ctx := context.Background()
@@ -213,7 +213,7 @@ func (g *GcpBucket) ScanBucket(serviceType ServiceType) []*Backup {
 				log.Errorf("error unmarshal Backup request, object: %s, err: %s", attrs.Name, err)
 				continue
 			}
-			if backup.ServiceType == serviceType {
+			if backup.ServiceType == serviceType && backup.RequestType == requestType {
 				backups = append(backups, &backup)
 			}
 		}
@@ -223,7 +223,7 @@ func (g *GcpBucket) ScanBucket(serviceType ServiceType) []*Backup {
 }
 
 func (g *GcpBucket) SyncMetadataState(state, objectName string) error {
-	
+
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
 	if err != nil {

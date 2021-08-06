@@ -326,7 +326,7 @@ func cliCreateBackup() {
 	rotation := ds.Rotation
 	backupServiceName := fmt.Sprintf("%s/%s", ds.PvcNamespace, ds.PvcName)
 	pgBackupService := backup.NewPgBackupService(backupServiceName, *pgCreds)
-	b := backup.NewBackup(bucket, pgBackupService, period, rotation)
+	b := backup.NewBackup(bucket, pgBackupService, period, rotation, backup.ManualBackupRequest)
 	if err := b.Service.Dump(); err != nil {
 		log.Error(err)
 		return

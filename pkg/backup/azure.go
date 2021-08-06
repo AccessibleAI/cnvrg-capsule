@@ -136,7 +136,7 @@ func (a *AzureBucket) DownloadFile(objectName, localFile string) error {
 	return azblob.DownloadBlobToFile(context.Background(), blobURL, 0, 0, file, do)
 }
 
-func (a *AzureBucket) ScanBucket(serviceType ServiceType) []*Backup {
+func (a *AzureBucket) ScanBucket(serviceType ServiceType, requestType BackupRequestType) []*Backup {
 	log.Infof("scanning bucket for serviceType: %s", serviceType)
 	var backups []*Backup
 	containerURL, err := getContainerUrl(a)
@@ -170,7 +170,7 @@ func (a *AzureBucket) ScanBucket(serviceType ServiceType) []*Backup {
 					log.Errorf("error unmarshal Backup request, object: %s, err: %s", object.Name, err)
 					continue
 				}
-				if backup.ServiceType == serviceType {
+				if backup.ServiceType == serviceType && backup.RequestType == requestType {
 					backups = append(backups, &backup)
 				}
 			}

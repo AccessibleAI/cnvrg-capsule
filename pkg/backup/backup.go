@@ -20,19 +20,21 @@ type Restore struct {
 }
 
 type Backup struct {
-	BackupId    string      `json:"backupId"`
-	Rotation    int         `json:"rotation"`
-	Date        time.Time   `json:"date"`
-	Period      float64     `json:"period"`
-	BucketType  BucketType  `json:"bucketType"`
-	Bucket      Bucket      `json:"bucket"`
-	ServiceType ServiceType `json:"serviceType"`
-	Service     Service     `json:"service"`
-	Restores    []*Restore  `json:"restores"`
-	Status      Status      `json:"status"`
+	BackupId    string            `json:"backupId"`
+	RequestType BackupRequestType `json:"requestType"`
+	Rotation    int               `json:"rotation"`
+	Date        time.Time         `json:"date"`
+	Period      float64           `json:"period"`
+	BucketType  BucketType        `json:"bucketType"`
+	Bucket      Bucket            `json:"bucket"`
+	ServiceType ServiceType       `json:"serviceType"`
+	Service     Service           `json:"service"`
+	Restores    []*Restore        `json:"restores"`
+	Status      Status            `json:"status"`
 }
 
 type PvcAnnotation string
+type BackupRequestType string
 
 const (
 	BackupEnabledAnnotation PvcAnnotation = "capsule.mlops.cnvrg.io/backup"
@@ -41,6 +43,9 @@ const (
 	CredsRefAnnotation      PvcAnnotation = "capsule.mlops.cnvrg.io/credsRef"
 	RotationRefAnnotation   PvcAnnotation = "capsule.mlops.cnvrg.io/rotation"
 	PeriodAnnotation        PvcAnnotation = "capsule.mlops.cnvrg.io/period"
+
+	PeriodicBackupRequest BackupRequestType = "periodicbackuprequest"
+	ManualBackupRequest   BackupRequestType = "manualbackuprequest"
 )
 
 type DiscoveryInputs struct {
@@ -173,7 +178,7 @@ func (b *Backup) createBackupRequest() error {
 }
 
 func (b *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
-	backups := b.Bucket.ScanBucket(serviceType)
+	backups := b.Bucket.ScanBucket(serviceType, PeriodicBackupRequest)
 	// backup is needed if backups list is empty
 	if len(backups) == 0 {
 		log.Info("no backups has been done so far, backup is required")
@@ -237,6 +242,12 @@ func (b *Backup) UnmarshalJSON(bytes []byte) error {
 
 	// unmarshal backupId
 	if err := json.Unmarshal(*objMap["backupId"], &b.BackupId); err != nil {
+		log.Error(err)
+		return err
+	}
+
+	// unmarshal backup request type
+	if err := json.Unmarshal(*objMap["requestType"], &b.RequestType); err != nil {
 		log.Error(err)
 		return err
 	}
@@ -385,9 +396,10 @@ func NewDiscoveryInputs(inputs map[string]string, pvcName, ns string) *Discovery
 
 }
 
-func NewBackup(bucket Bucket, backupService Service, period string, rotation int) *Backup {
+func NewBackup(bucket Bucket, backupService Service, period string, rotation int, requestType BackupRequestType) *Backup {
 	b := &Backup{
 		BackupId:    fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
+		RequestType: requestType,
 		BucketType:  bucket.BucketType(),
 		Bucket:      bucket,
 		Status:      Initialized,
@@ -528,7 +540,7 @@ func discoverPgBackups(ds *DiscoveryInputs) error {
 	rotation := ds.Rotation
 	backupServiceName := fmt.Sprintf("%s/%s", ds.PvcNamespace, ds.PvcName)
 	pgBackupService := NewPgBackupService(backupServiceName, *pgCreds)
-	backup := NewBackup(bucket, pgBackupService, period, rotation)
+	backup := NewBackup(bucket, pgBackupService, period, rotation, PeriodicBackupRequest)
 	if err := backup.createBackupRequest(); err != nil {
 		log.Errorf("error creating backup request, err: %s", err)
 		return err
@@ -549,9 +561,9 @@ func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
 
 func scanBucketForBackupOrRestoreRequests(bb <-chan Bucket) {
 	for bucket := range bb {
-		pgBackups := bucket.ScanBucket(PgService)
+		pgBackups := bucket.ScanBucket(PgService, PeriodicBackupRequest)
 		rotateBackups(pgBackups)
-		for _, pgBackup := range bucket.ScanBucket(PgService) {
+		for _, pgBackup := range bucket.ScanBucket(PgService, PeriodicBackupRequest) {
 			// run backups
 			go pgBackup.backup()
 			// run restores

@@ -18,7 +18,7 @@ type Bucket interface {
 	Remove(backupId string) error
 	DownloadFile(objectName, localFile string) error
 	UploadFile(path, objectName string) error
-	ScanBucket(serviceType ServiceType) []*Backup
+	ScanBucket(serviceType ServiceType, requestType BackupRequestType) []*Backup
 	SyncMetadataState(state, objectName string) error
 }
 
