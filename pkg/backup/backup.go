@@ -6,6 +6,9 @@ import (
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
+	"io/ioutil"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -401,29 +404,82 @@ func NewBackup(bucket Bucket, backupService Service, period string, rotation int
 
 func GetBackupBuckets() (bucket []Bucket) {
 
-	for _, pvc := range k8s.GetPvcs().Items {
+	if viper.GetBool("auto-discovery") {
 
-		if !CapsuleEnabledPvc(pvc.Annotations) {
-			continue
+		for _, pvc := range k8s.GetPvcs().Items {
+
+			if !CapsuleEnabledPvc(pvc.Annotations) {
+				continue
+			}
+
+			ds := NewDiscoveryInputs(pvc.Annotations, pvc.Name, pvc.Namespace)
+			if ds == nil {
+				log.Error("empty discover inputs, validate pvc annotations, skipping backup ")
+				continue
+			}
+
+			if !ShouldBackup(ds) {
+				continue // backup not required, either backup disabled or the ns is blocked for backups
+			}
+
+			// discover destination bucket
+			b, err := NewBucketWithAutoDiscovery(ds.PvcNamespace, ds.BucketRefSecret)
+			if err != nil {
+				log.Errorf("error discovering backup bucket, err: %s", err)
+				continue
+			}
+			bucket = append(bucket, b)
+		}
+	} else {
+		log.Warn("auto-discovery disabled, using input params for backups discovery")
+		bucketType := viper.GetString("bucket-type")
+		log.Infof("backup type: %s", bucketType)
+		switch BucketType(bucketType) {
+		case MinioBucketType:
+			endpoint := viper.GetString("endpoint")
+			region := viper.GetString("region")
+			accessKey := viper.GetString("access-key")
+			secretKey := viper.GetString("secret-key")
+			bucketName := viper.GetString("bucket-name")
+			dstDir := viper.GetString("dst-dir")
+			b := NewMinioBucket(endpoint, region, accessKey, secretKey, bucketName, dstDir)
+			bucket = append(bucket, b)
+			break
+		case AwsBucketType:
+			region := viper.GetString("region")
+			accessKey := viper.GetString("access-key")
+			secretKey := viper.GetString("secret-key")
+			bucketName := viper.GetString("bucket-name")
+			dstDir := viper.GetString("dst-dir")
+			b := NewAwsBucket(region, accessKey, secretKey, bucketName, dstDir)
+			bucket = append(bucket, b)
+			break
+		case AzureBucketType:
+			accountName := viper.GetString("account-name")
+			accountKey := viper.GetString("account-key")
+			bucketName := viper.GetString("bucket-name")
+			dstDir := viper.GetString("dst-dir")
+			b := NewAzureBucket(accountName, accountKey, bucketName, dstDir)
+			bucket = append(bucket, b)
+			break
+		case GcpBucketType:
+			keyJson := viper.GetString("key-json")
+			projectId := viper.GetString("project-id")
+			bucketName := viper.GetString("bucket-name")
+			dstDir := viper.GetString("dst-dir")
+			keyJsonBytes, err := ioutil.ReadFile(keyJson)
+			if err != nil {
+				log.Errorf("faild to load GCP key-json, err: %s", keyJson)
+				os.Exit(1)
+			}
+			b := NewGcpBucket(string(keyJsonBytes), projectId, bucketName, dstDir)
+			bucket = append(bucket, b)
+			break
+		default:
+			log.Errorf("not supported bucket type: %s", bucketType)
+			os.Exit(1)
 		}
 
-		ds := NewDiscoveryInputs(pvc.Annotations, pvc.Name, pvc.Namespace)
-		if ds == nil {
-			log.Error("empty discover inputs, validate pvc annotations, skipping backup ")
-			continue
-		}
-
-		if !ShouldBackup(ds) {
-			continue // backup not required, either backup disabled or the ns is blocked for backups
-		}
-
-		// discover destination bucket
-		b, err := NewBucketWithAutoDiscovery(ds.PvcNamespace, ds.BucketRefSecret)
-		if err != nil {
-			log.Errorf("error discovering backup bucket, err: %s", err)
-			continue
-		}
-		bucket = append(bucket, b)
 	}
 	return bucket
 }

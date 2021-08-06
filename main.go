@@ -52,7 +52,7 @@ var (
 		{name: "dst-dir", shorthand: "", value: "", usage: "bucket backups base directory"},
 		{name: "account-name", shorthand: "", value: "", usage: "Azure account name"},
 		{name: "account-key", shorthand: "", value: "", usage: "Azure account key"},
-		{name: "key-json", shorthand: "", value: "", usage: "Key.json GCP credentials file"},
+		{name: "key-json", shorthand: "", value: "", usage: "Key.json GCP credentials file path"},
 		{name: "project-id", shorthand: "", value: "", usage: "GCP project id "},
 		{name: "bucket-type", shorthand: "", value: "minio", usage:
 		fmt.Sprintf("bucket type, one of: %s|%s|%s|%s", backup.MinioBucketType, backup.AwsBucketType, backup.AzureBucketType, backup.GcpBucketType)},
@@ -60,7 +60,7 @@ var (
 	rootParams = []param{
 		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
 		{name: "dumpdir", shorthand: "", value: "/tmp", usage: "place to download DB dumps before uploading to s3 bucket"},
-		{name: "auto-discovery", shorthand: "", value: true, usage: "automatically detect pg creds based on K8s secret"},
+		{name: "auto-discovery", shorthand: "", value: true, usage: "automatically discover backup buckets"},
 		{name: "ns-whitelist", shorthand: "", value: "*", usage: "when auto-discovery is true, specify the namespaces list, by default lookup in all namespaces"},
 		{name: "kubeconfig", shorthand: "", value: k8s.KubeconfigDefaultLocation(), usage: "absolute path to the kubeconfig file"},
 	}
@@ -456,7 +456,7 @@ func selectBackup(selector string) *backup.Backup {
 		return nil
 	}
 	backupSelect := promptui.Select{
-		Label:     "Select backup for download",
+		Label:     "Select backup",
 		Items:     backups,
 		Size:      10,
 		Templates: template,

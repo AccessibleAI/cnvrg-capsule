@@ -4,14 +4,13 @@ package k8s
 
 import (
 	"context"
+	"github.com/go-logr/zapr"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	v1core "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"os"
 	"path/filepath"
@@ -25,27 +24,37 @@ var (
 	log = logrus.WithField("module", "k8s")
 )
 
-func init() {
-	k8sClient = GetClient()
+func initZapLog() *zap.Logger {
+	config := zap.NewDevelopmentConfig()
+	config.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+	config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	config.EncoderConfig.TimeKey = "timestamp"
+	config.DisableStacktrace = true
+	config.DisableCaller = true
+	config.Encoding = "console"
+	logger, _ := config.Build()
+	return logger
 }
 
 func GetClient() client.Client {
 
+	if k8sClient != nil {
+		return k8sClient
+	}
+
+	ctrl.SetLogger(zapr.NewLogger(initZapLog()))
 	scheme := runtime.NewScheme()
-	// register cnvrg mlops gvr
-	//if err := mlopsv1.AddToScheme(scheme); err != nil {
-	//	log.Error(err)
-	//}
-	// register v1core gvr
+
 	if err := v1core.AddToScheme(scheme); err != nil {
 		log.Error(err)
+		os.Exit(1)
 	}
 
 	kubeconfig := ctrl.GetConfigOrDie()
 	controllerClient, err := client.New(kubeconfig, client.Options{Scheme: scheme})
 	if err != nil {
 		log.Error(err)
-		return nil
+		os.Exit(1)
 	}
 	return controllerClient
 }
@@ -58,46 +67,11 @@ func KubeconfigDefaultLocation() string {
 	return kubeconfigDefaultLocation
 }
 
-func clientset() *kubernetes.Clientset {
-	if _, err := os.Stat(viper.GetString("kubeconfig")); os.IsNotExist(err) {
-		config, err := rest.InClusterConfig()
-		if err != nil {
-			panic(err.Error())
-		}
-		clientset, err := kubernetes.NewForConfig(config)
-		if err != nil {
-			panic(err.Error())
-		}
-		return clientset
-	} else if err != nil {
-		log.Fatalf("%s failed to check kubeconfig location", err)
-	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", viper.GetString("kubeconfig"))
-	if err != nil {
-		panic(err.Error())
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
-	}
-	return clientset
-}
-
-//func GetCnvrgApps() *mlopsv1.CnvrgAppList {
-//	l := mlopsv1.CnvrgAppList{}
-//	log.Debug("fetching all cnvrgapps")
-//	if err := k8sClient.List(context.Background(), &l); err != nil {
-//		log.Error("failed to list CnvrgApps err: %v,", err)
-//	}
-//	return &l
-//}
-
 func GetSecret(name types.NamespacedName) *v1core.Secret {
 
 	secret := v1core.Secret{}
 	log.Infof("fetching %s secret", name)
-	if err := k8sClient.Get(context.Background(), name, &secret); err != nil {
+	if err := GetClient().Get(context.Background(), name, &secret); err != nil {
 		log.Errorf("error fetching pg scert, err: %s", err)
 	}
 	return &secret
@@ -105,7 +79,7 @@ func GetSecret(name types.NamespacedName) *v1core.Secret {
 
 func GetPvcs() *v1core.PersistentVolumeClaimList {
 	pvcList := v1core.PersistentVolumeClaimList{}
-	if err := k8sClient.List(context.Background(), &pvcList); err != nil {
+	if err := GetClient().List(context.Background(), &pvcList); err != nil {
 		log.Errorf("error listing pvcs, err %s", err)
 	}
 	return &pvcList
