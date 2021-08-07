@@ -47,7 +47,7 @@ var (
 	}
 	rootParams = []param{
 		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
-		{name: "dumpdir", shorthand: "", value: "/tmp", usage: "place to download DB dumps before uploading to s3 bucket"},
+		{name: "dumpdir", shorthand: "", value: "/tmp/capsule-data", usage: "place to download DB dumps before uploading to s3 bucket"},
 		{name: "auto-discovery", shorthand: "", value: true, usage: "automatically discover backup buckets"},
 		{name: "ns-whitelist", shorthand: "", value: "*", usage: "when auto-discovery is true, specify the namespaces list, by default lookup in all namespaces"},
 		{name: "kubeconfig", shorthand: "", value: k8s.KubeconfigDefaultLocation(), usage: "absolute path to the kubeconfig file"},
@@ -76,6 +76,13 @@ var rootCmd = &cobra.Command{
 	Short: "cnvrg-capsule - Cnvrg backup and restore service",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		setupLogging()
+		dumpDirPath := viper.GetString("dumpdir")
+		if _, err := os.Stat(dumpDirPath); os.IsNotExist(err) {
+			if err := os.Mkdir(dumpDirPath, os.ModePerm); err != nil {
+				log.Error(err)
+				os.Exit(1)
+			}
+		}
 	},
 }
 
@@ -133,10 +140,6 @@ var cliBackupPg = &cobra.Command{
 			cliDescribeBackup()
 			return
 		}
-		if viper.GetBool("dump-bucketfile-sample") {
-			cliDumpBucketSample()
-			return
-		}
 	},
 }
 
@@ -171,39 +174,6 @@ func setupCommands() {
 	rootCmd.AddCommand(startCapsule)
 	rootCmd.AddCommand(capsuleVersion)
 
-}
-
-func cliDumpBucketSample() {
-	log.Infof("pg statefile sample")
-	bucketType := selectBucketType()
-	log.Infof("bucket type: %s", *bucketType)
-	var bucket backup.Bucket
-	switch *bucketType {
-	case backup.MinioBucketType:
-		bucket = backup.NewMinioBucket("endpoint", "region", "access_key", "secret_key", "cnvrg_storage", "bucket_destination_dir")
-		break
-	case backup.AwsBucketType:
-		bucket = backup.NewAwsBucket("region", "access_key", "secret_key", "cnvrg_storage", "cnvrg-smart-backups")
-		break
-	case backup.AzureBucketType:
-		bucket = backup.NewAzureBucket("account_name", "account_key", "cnvrg_storage", "cnvrg-smart-backups")
-		break
-	case backup.GcpBucketType:
-		bucket = backup.NewGcpBucket("gcp_key_json_file", "gcp_project_id", "cnvrg_storage", "cnvrg-smart-backups")
-		break
-	}
-	bl := []backup.Bucket{bucket}
-	jsonBytes, err := json.Marshal(bl)
-	if err != nil {
-		log.Errorf("can't marshal struct, err: %v", err)
-		return
-	}
-	var out bytes.Buffer
-	if err := json.Indent(&out, jsonBytes, "", "  "); err != nil {
-		log.Error(err)
-		return
-	}
-	log.Infof("\n%s", out.Bytes())
 }
 
 func cliListBackups() {
@@ -425,26 +395,6 @@ func selectBackup(selector string) *backup.Backup {
 		return nil
 	}
 	return backups[idx]
-}
-
-func selectBucketType() *backup.BucketType {
-	prompt := promptui.Select{
-		Label: "Select bucket type",
-		Items: []backup.BucketType{
-			backup.MinioBucketType,
-			backup.AwsBucketType,
-			backup.AzureBucketType,
-			backup.GcpBucketType,
-		},
-	}
-
-	_, result, err := prompt.Run()
-	bucketType := backup.BucketType(result)
-	if err != nil {
-		log.Error(err)
-		return nil
-	}
-	return &bucketType
 }
 
 func setupLogging() {
