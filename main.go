@@ -34,8 +34,8 @@ const (
 )
 
 var (
-	BuildVersion    string
-	cliBackupParams = []param{
+	BuildVersion string
+	cliPgParams  = []param{
 		{name: "id", shorthand: "", value: "", usage: "backup id"},
 		{name: "list", shorthand: "l", value: false, usage: "list backups"},
 		{name: "delete", shorthand: "", value: false, usage: "delete backup"},
@@ -43,6 +43,13 @@ var (
 		{name: "download", shorthand: "d", value: false, usage: "download backup"},
 		{name: "restore", shorthand: "r", value: false, usage: "request backup restore"},
 		{name: "describe", shorthand: "", value: false, usage: "describe backup metadata"},
+	}
+	rootParams = []param{
+		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
+		{name: "dumpdir", shorthand: "", value: "/tmp", usage: "place to download DB dumps before uploading to s3 bucket"},
+		{name: "auto-discovery", shorthand: "", value: true, usage: "automatically discover backup buckets"},
+		{name: "ns-whitelist", shorthand: "", value: "*", usage: "when auto-discovery is true, specify the namespaces list, by default lookup in all namespaces"},
+		{name: "kubeconfig", shorthand: "", value: k8s.KubeconfigDefaultLocation(), usage: "absolute path to the kubeconfig file"},
 		{name: "endpoint", shorthand: "", value: "", usage: "S3 end point"},
 		{name: "region", shorthand: "", value: "", usage: "S3 region"},
 		{name: "access-key", shorthand: "", value: "", usage: "S3 access key"},
@@ -56,13 +63,6 @@ var (
 		{name: "project-id", shorthand: "", value: "", usage: "GCP project id "},
 		{name: "bucket-type", shorthand: "", value: "minio", usage:
 		fmt.Sprintf("bucket type, one of: %s|%s|%s|%s", backup.MinioBucketType, backup.AwsBucketType, backup.AzureBucketType, backup.GcpBucketType)},
-	}
-	rootParams = []param{
-		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
-		{name: "dumpdir", shorthand: "", value: "/tmp", usage: "place to download DB dumps before uploading to s3 bucket"},
-		{name: "auto-discovery", shorthand: "", value: true, usage: "automatically discover backup buckets"},
-		{name: "ns-whitelist", shorthand: "", value: "*", usage: "when auto-discovery is true, specify the namespaces list, by default lookup in all namespaces"},
-		{name: "kubeconfig", shorthand: "", value: k8s.KubeconfigDefaultLocation(), usage: "absolute path to the kubeconfig file"},
 	}
 	startCapsuleParams = []param{
 		{name: "api-bind-addr", shorthand: "", value: ":8080", usage: "The address to bind to the api service."},
@@ -103,27 +103,9 @@ var startCapsule = &cobra.Command{
 	},
 }
 
-var cliBackup = &cobra.Command{
-	Use:   "backup",
-	Short: "Run capsule backups from cli",
-	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) == 0 {
-			log.Error("wrong parameter provided, must be one of the following: pg")
-			_ = cmd.Help()
-			os.Exit(1)
-		}
-		if args[0] != "pg" {
-			log.Errorf("wrong paramter provided: %s, must be one of the following: pg", args[0])
-			_ = cmd.Help()
-			os.Exit(1)
-		}
-		log.Info("starting capsule...")
-	},
-}
-
 var cliBackupPg = &cobra.Command{
 	Use:   "pg",
-	Short: "Backup PG",
+	Short: "PostgreSQL backup and restore operations",
 	Run: func(cmd *cobra.Command, args []string) {
 		if viper.GetBool("list") {
 			cliListBackups()
@@ -180,10 +162,10 @@ func setupCommands() {
 	//setParams(cliIndexfileParams, cliIndexfile)
 	setParams(startCapsuleParams, startCapsule)
 	setParams(rootParams, rootCmd)
-	setParams(cliBackupParams, cliBackupPg)
-	cliBackup.AddCommand(cliBackupPg)
+	setParams(cliPgParams, cliBackupPg)
+	//cliBackup.AddCommand(cliBackupPg)
 	//rootCmd.AddCommand(cliIndexfile)
-	rootCmd.AddCommand(cliBackup)
+	rootCmd.AddCommand(cliBackupPg)
 	rootCmd.AddCommand(startCapsule)
 	rootCmd.AddCommand(capsuleVersion)
 
@@ -225,7 +207,7 @@ func cliDumpBucketSample() {
 func cliListBackups() {
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.NewPgPeriodicScanOptions())...)
+		backups = append(backups, bucket.ScanBucket(backup.NewAllPGV1Alpha1ScanOptions())...)
 		if len(backups) == 0 {
 			log.Info("backup list is empty!")
 			return
@@ -289,7 +271,6 @@ func cliCreateBackup() {
 			continue
 		}
 		dsList = append(dsList, backup.NewDiscoveryInputs(pvc.Annotations, pvc.Name, pvc.Namespace))
-
 	}
 
 	backupCreateSelect := promptui.Select{
@@ -321,56 +302,28 @@ func cliCreateBackup() {
 		log.Error(err)
 		return
 	}
-	// create backup request
+	// create manual backup request
 	period := ds.Period
 	rotation := ds.Rotation
 	backupServiceName := fmt.Sprintf("%s/%s", ds.PvcNamespace, ds.PvcName)
 	pgBackupService := backup.NewPgBackupService(backupServiceName, *pgCreds)
 	b := backup.NewBackup(bucket, pgBackupService, period, rotation, backup.ManualBackupRequest)
-	if err := b.Service.Dump(); err != nil {
-		log.Error(err)
-		return
+	if err := b.CreateBackupRequest(); err != nil {
+		log.Errorf("error creating backup request, err: %s", err)
+		os.Exit(1)
 	}
 }
 
 func cliDownloadBackup() {
-	selectBackupDownloadTemplate := &promptui.SelectTemplates{
-		Label:    "{{ . }}?",
-		Active:   "> {{ .BackupId | cyan }} ({{ .Date | red }})",
-		Inactive: "  {{ .BackupId | faint }} ({{ .Date | faint }})",
-		Selected: "> {{ .BackupId | red | cyan }}",
-		Details: `
---------- Backup ----------
-{{ "Id:" | faint }}	{{ .BackupId }}
-{{ "Date:" | faint }}	{{ .Date }}
-{{ "Type:" | faint }}	{{ .ServiceType }}
-{{ "Status:" | faint }}	{{ if eq .Status "finished" }}{{ printf "%s" .Status | green }} {{ else }} {{ printf "%s" .Status | red }} {{ end }} `,
-	}
-	var backups []*backup.Backup
-	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.NewPgPeriodicScanOptions())...)
-	}
-
-	backupSelect := promptui.Select{
-		Label:     "Select backup for download",
-		Items:     backups,
-		Size:      10,
-		Templates: selectBackupDownloadTemplate,
-	}
-	if len(backups) == 0 {
-		log.Info("backups list is empty, nothing to delete")
-		return
-	}
-	idx, _, err := backupSelect.Run()
-	if err != nil {
-		log.Error(err)
-		return
+	b := selectBackup(">")
+	if b == nil {
+		os.Exit(1)
 	}
 	s := spinner.New(spinner.CharSets[27], 50*time.Millisecond)
-	s.Suffix = fmt.Sprintf("downloading DB dump to: %s", backups[idx].Service.DumpfileLocalPath())
+	s.Suffix = fmt.Sprintf("downloading DB dump to: %s", b.Service.DumpfileLocalPath())
 	s.Color("green")
 	s.Start()
-	if err := backups[idx].Service.DownloadBackupAssets(backups[idx].Bucket, backups[idx].BackupId); err != nil {
+	if err := b.Service.DownloadBackupAssets(b.Bucket, b.BackupId); err != nil {
 		log.Error(err)
 		return
 	}
@@ -440,7 +393,7 @@ func selectBackup(selector string) *backup.Backup {
 	}
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.NewPgPeriodicScanOptions())...)
+		backups = append(backups, bucket.ScanBucket(backup.NewPgPeriodicV1Alpha1ScanOptions())...)
 	}
 	if len(backups) == 0 {
 		log.Info("backup list is empty!")
@@ -489,19 +442,6 @@ func selectBucketType() *backup.BucketType {
 		return nil
 	}
 	return &bucketType
-}
-
-func readBucketsFromFile() []backup.Bucket {
-	//bucketFile := viper.GetString("bucketfile")
-	//if bucketFile != "" {
-	//	dat, err := ioutil.ReadFile(bucketFile)
-	//	if err != nil {
-	//		log.Error(err)
-	//		os.Exit(1)
-	//	}
-	//	bl := []backup.Bucket
-	//}
-	return nil
 }
 
 func setupLogging() {

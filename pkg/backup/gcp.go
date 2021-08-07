@@ -213,7 +213,9 @@ func (g *GcpBucket) ScanBucket(o *ScanBucketOptions) []*Backup {
 				log.Errorf("error unmarshal Backup request, object: %s, err: %s", attrs.Name, err)
 				continue
 			}
-			if o.haveServiceType(backup.ServiceType) && o.haveRequestType(backup.RequestType) {
+			if o.haveServiceType(backup.ServiceType) &&
+				o.haveRequestType(backup.RequestType) &&
+				o.matchStatefileVersion(backup.StatefileVersion) {
 				backups = append(backups, &backup)
 			}
 		}

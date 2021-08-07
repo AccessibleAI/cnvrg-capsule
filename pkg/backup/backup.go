@@ -20,18 +20,18 @@ type Restore struct {
 }
 
 type Backup struct {
-	BackupId    string            `json:"backupId"`
-	RequestType BackupRequestType `json:"requestType"`
-	Rotation    int               `json:"rotation"`
-	Date        time.Time         `json:"date"`
-	Period      float64           `json:"period"`
-	BucketType  BucketType        `json:"bucketType"`
-	Bucket      Bucket            `json:"bucket"`
-	ServiceType ServiceType       `json:"serviceType"`
-	Service     Service           `json:"service"`
-	Restores    []*Restore        `json:"restores"`
-	Status      Status            `json:"status"`
-	Version     string            `json:"version"`
+	BackupId         string            `json:"backupId"`
+	RequestType      BackupRequestType `json:"requestType"`
+	Rotation         int               `json:"rotation"`
+	Date             time.Time         `json:"date"`
+	Period           float64           `json:"period"`
+	BucketType       BucketType        `json:"bucketType"`
+	Bucket           Bucket            `json:"bucket"`
+	ServiceType      ServiceType       `json:"serviceType"`
+	Service          Service           `json:"service"`
+	Restores         []*Restore        `json:"restores"`
+	Status           Status            `json:"status"`
+	StatefileVersion string            `json:"statefileVersion"`
 }
 
 type PvcAnnotation string
@@ -47,6 +47,8 @@ const (
 
 	PeriodicBackupRequest BackupRequestType = "periodicbackuprequest"
 	ManualBackupRequest   BackupRequestType = "manualbackuprequest"
+
+	StatefileV1Alpha1 string = "v1alpha1"
 )
 
 type DiscoveryInputs struct {
@@ -66,15 +68,6 @@ var (
 	BucketsToWatchChan = make(chan Bucket, 100)
 	activeBackups      = map[string]bool{}
 )
-
-func (b *Backup) Jsonify() (string, error) {
-	jsonStr, err := json.Marshal(b)
-	if err != nil {
-		log.Errorf("can't marshal struct, err: %v", err)
-		return "", nil
-	}
-	return string(jsonStr), nil
-}
 
 func (b *Backup) backup() error {
 
@@ -121,65 +114,19 @@ func (b *Backup) backup() error {
 	return nil
 }
 
-func (b *Backup) Restore() error {
-	var restore *Restore
-
-	// Restore when status is RestoreRequest
-	for _, requestRestore := range b.Restores {
-		if requestRestore.Status == RestoreRequest {
-			restore = requestRestore
-			break
-		}
+func (b *Backup) ensureBackupRequestIsNeeded() bool {
+	// if this is manual backup request, skip the check
+	if b.RequestType == ManualBackupRequest {
+		log.Info("manual backup request type, skipping ensure backup request check")
+		return true
 	}
-	if restore != nil {
-		log.Infof("restoring backup: %s ", b.BackupId)
-		// check if current backups is not active in another backup go routine
-		if b.active() {
-			log.Infof("restore %s is active, skipping", b.BackupId)
-			return nil
-		}
-		// activate Restore - so other go routine won't initiate Restore process again
-		b.activate()
-		// deactivate backup
-		defer b.deactivate()
-		// run Restore
-		if err := b.Service.Restore(); err != nil {
-			restore.Status = Failed
-			_ = b.SyncState()
-			return err
-		}
-		// finish restore
-		restore.Status = Finished
-		if err := b.SyncState(); err != nil {
-			return err
-		}
+	// periodic backup request, check if backup is needed
+	o := &ScanBucketOptions{
+		ServiceType:      []ServiceType{b.ServiceType},
+		RequestType:      []BackupRequestType{PeriodicBackupRequest},
+		StatefileVersion: b.StatefileVersion,
 	}
-	return nil
-}
-
-func (b *Backup) createBackupRequest() error {
-
-	if err := b.Bucket.Ping(); err != nil {
-		log.Errorf("can't upload DB dump: %s, error during pinging bucket", b.BackupId)
-		return err
-	}
-
-	if !b.ensureBackupRequestIsNeeded(b.ServiceType) {
-		log.Infof("backup %s is not needed, skipping", b.BackupId)
-		return nil
-	}
-
-	jsonStr, err := b.Jsonify()
-	if err != nil {
-		return err
-	}
-	_ = b.Bucket.SyncMetadataState(jsonStr, b.getBackupStateFileName())
-
-	return nil
-}
-
-func (b *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
-	backups := b.Bucket.ScanBucket(NewPgPeriodicScanOptions())
+	backups := b.Bucket.ScanBucket(o)
 	// backup is needed if backups list is empty
 	if len(backups) == 0 {
 		log.Info("no backups has been done so far, backup is required")
@@ -231,6 +178,15 @@ func (b *Backup) deactivate() {
 	log.Infof("backup: %s has been deactivated", b.BackupId)
 }
 
+func (b *Backup) Jsonify() (string, error) {
+	jsonStr, err := json.Marshal(b)
+	if err != nil {
+		log.Errorf("can't marshal struct, err: %v", err)
+		return "", nil
+	}
+	return string(jsonStr), nil
+}
+
 func (b *Backup) UnmarshalJSON(bytes []byte) error {
 	//help: http://gregtrowbridge.com/golang-json-serialization-with-interfaces/
 
@@ -242,10 +198,22 @@ func (b *Backup) UnmarshalJSON(bytes []byte) error {
 	}
 
 	// unmarshal version
-	if err := json.Unmarshal(*objMap["version"], &b.Version); err != nil {
+	if err := json.Unmarshal(*objMap["statefileVersion"], &b.StatefileVersion); err != nil {
 		log.Error(err)
 		return err
 	}
+
+	// unmarshal statefile v1alpha1
+	if b.StatefileVersion == StatefileV1Alpha1 {
+		if err := b.UnmarshalStatefileV1Alpha1(objMap); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *Backup) UnmarshalStatefileV1Alpha1(objMap map[string]*json.RawMessage) error {
 
 	// unmarshal backupId
 	if err := json.Unmarshal(*objMap["backupId"], &b.BackupId); err != nil {
@@ -370,6 +338,63 @@ func (b *Backup) SyncState() error {
 	return nil
 }
 
+func (b *Backup) Restore() error {
+	var restore *Restore
+
+	// Restore when status is RestoreRequest
+	for _, requestRestore := range b.Restores {
+		if requestRestore.Status == RestoreRequest {
+			restore = requestRestore
+			break
+		}
+	}
+	if restore != nil {
+		log.Infof("restoring backup: %s ", b.BackupId)
+		// check if current backups is not active in another backup go routine
+		if b.active() {
+			log.Infof("restore %s is active, skipping", b.BackupId)
+			return nil
+		}
+		// activate Restore - so other go routine won't initiate Restore process again
+		b.activate()
+		// deactivate backup
+		defer b.deactivate()
+		// run Restore
+		if err := b.Service.Restore(); err != nil {
+			restore.Status = Failed
+			_ = b.SyncState()
+			return err
+		}
+		// finish restore
+		restore.Status = Finished
+		if err := b.SyncState(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *Backup) CreateBackupRequest() error {
+
+	if err := b.Bucket.Ping(); err != nil {
+		log.Errorf("can't upload DB dump: %s, error during pinging bucket", b.BackupId)
+		return err
+	}
+
+	if !b.ensureBackupRequestIsNeeded() {
+		log.Infof("backup %s is not needed, skipping", b.BackupId)
+		return nil
+	}
+
+	jsonStr, err := b.Jsonify()
+	if err != nil {
+		return err
+	}
+	_ = b.Bucket.SyncMetadataState(jsonStr, b.getBackupStateFileName())
+
+	return nil
+}
+
 func Run() {
 	log.Info("starting backup service...")
 	go discoverBackups()
@@ -405,18 +430,18 @@ func NewDiscoveryInputs(inputs map[string]string, pvcName, ns string) *Discovery
 
 func NewBackup(bucket Bucket, backupService Service, period string, rotation int, requestType BackupRequestType) *Backup {
 	b := &Backup{
-		BackupId:    fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
-		RequestType: requestType,
-		BucketType:  bucket.BucketType(),
-		Bucket:      bucket,
-		Status:      Initialized,
-		Date:        time.Now(),
-		ServiceType: backupService.ServiceType(),
-		Service:     backupService,
-		Period:      getPeriodInSeconds(period),
-		Rotation:    rotation,
-		Restores:    []*Restore{},
-		Version:     "v1alpha1",
+		BackupId:         fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
+		RequestType:      requestType,
+		BucketType:       bucket.BucketType(),
+		Bucket:           bucket,
+		Status:           Initialized,
+		Date:             time.Now(),
+		ServiceType:      backupService.ServiceType(),
+		Service:          backupService,
+		Period:           getPeriodInSeconds(period),
+		Rotation:         rotation,
+		Restores:         []*Restore{},
+		StatefileVersion: StatefileV1Alpha1,
 	}
 	log.Debugf("new backup initiated: %#v", b)
 	return b
@@ -549,7 +574,7 @@ func discoverPgBackups(ds *DiscoveryInputs) error {
 	backupServiceName := fmt.Sprintf("%s/%s", ds.PvcNamespace, ds.PvcName)
 	pgBackupService := NewPgBackupService(backupServiceName, *pgCreds)
 	backup := NewBackup(bucket, pgBackupService, period, rotation, PeriodicBackupRequest)
-	if err := backup.createBackupRequest(); err != nil {
+	if err := backup.CreateBackupRequest(); err != nil {
 		log.Errorf("error creating backup request, err: %s", err)
 		return err
 	}
@@ -569,9 +594,9 @@ func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
 
 func scanBucketForBackupOrRestoreRequests(bb <-chan Bucket) {
 	for bucket := range bb {
-		pgBackups := bucket.ScanBucket(NewPgPeriodicScanOptions())
+		pgBackups := bucket.ScanBucket(NewPgPeriodicV1Alpha1ScanOptions())
 		rotateBackups(pgBackups)
-		for _, pgBackup := range bucket.ScanBucket(NewPgPeriodicScanOptions()) {
+		for _, pgBackup := range bucket.ScanBucket(NewPgPeriodicV1Alpha1ScanOptions()) {
 			// run backups
 			go pgBackup.backup()
 			// run restores

@@ -11,8 +11,9 @@ type Status string
 type BucketType string
 
 type ScanBucketOptions struct {
-	ServiceType []ServiceType
-	RequestType []BackupRequestType
+	ServiceType      []ServiceType
+	RequestType      []BackupRequestType
+	StatefileVersion string
 }
 
 type Bucket interface {
@@ -53,6 +54,10 @@ func (s *ScanBucketOptions) haveRequestType(requestType BackupRequestType) bool 
 		}
 	}
 	return false
+}
+
+func (s *ScanBucketOptions) matchStatefileVersion(statefileVersion string) bool {
+	return s.StatefileVersion == statefileVersion
 }
 
 func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
@@ -117,17 +122,26 @@ func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
 	return nil, err
 }
 
-func NewPgPeriodicScanOptions() *ScanBucketOptions {
+func NewPgPeriodicV1Alpha1ScanOptions() *ScanBucketOptions {
 	return &ScanBucketOptions{
 		ServiceType: []ServiceType{PgService},
 		RequestType: []BackupRequestType{PeriodicBackupRequest},
 	}
 }
 
-func NewAllScanOptions() *ScanBucketOptions {
+func NewPgManualV1Alpha1ScanOptions() *ScanBucketOptions {
 	return &ScanBucketOptions{
-		ServiceType: []ServiceType{PgService},
-		RequestType: []BackupRequestType{PeriodicBackupRequest, ManualBackupRequest},
+		ServiceType:      []ServiceType{PgService},
+		RequestType:      []BackupRequestType{ManualBackupRequest},
+		StatefileVersion: StatefileV1Alpha1,
+	}
+}
+
+func NewAllPGV1Alpha1ScanOptions() *ScanBucketOptions {
+	return &ScanBucketOptions{
+		ServiceType:      []ServiceType{PgService},
+		RequestType:      []BackupRequestType{PeriodicBackupRequest, ManualBackupRequest},
+		StatefileVersion: StatefileV1Alpha1,
 	}
 }
 
