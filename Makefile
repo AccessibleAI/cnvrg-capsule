@@ -1,5 +1,5 @@
 build-mac:
-	go build -v -o bin/capsule-darwin-x86_64 main.go
+	go build -ldflags="-X 'main.Build=$$(git rev-parse --short HEAD)' -X 'main.Version=$$(cat /tmp/newCapsuleVersion)'" -v -o bin/capsule-darwin-x86_64 main.go
 
 build-linux:
 	docker run --rm -v ${PWD}:/usr/src/capsule -w /usr/src/capsule golang:1.16 /bin/bash -c "GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/capsule-linux-x86_64 main.go"
@@ -9,7 +9,7 @@ install-mac: build-mac
 	capsule completion bash > /usr/local/etc/bash_completion.d/capsule
 
 docker-build:
-	docker build . -t docker.io/cnvrg/cnvrg-capsule:$(shell cat /tmp/newCapsuleVersion)
+	docker build --build-arg BUILD_SHA=$(shell git rev-parse --short HEAD) --build-arg BUILD_VERSION=$(shell cat /tmp/newCapsuleVersion) -t docker.io/cnvrg/cnvrg-capsule:$(shell cat /tmp/newCapsuleVersion) .
 
 docker-push:
 	docker push docker.io/cnvrg/cnvrg-capsule:$(shell cat /tmp/newCapsuleVersion)

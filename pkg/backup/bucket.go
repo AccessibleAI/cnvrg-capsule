@@ -38,8 +38,8 @@ const (
 	Statefile      string = "statefile.json"
 )
 
-func (s *ScanBucketOptions) haveServiceType(serviceType ServiceType) bool {
-	for _, st := range s.ServiceType {
+func (o *ScanBucketOptions) haveServiceType(serviceType ServiceType) bool {
+	for _, st := range o.ServiceType {
 		if st == serviceType {
 			return true
 		}
@@ -47,8 +47,8 @@ func (s *ScanBucketOptions) haveServiceType(serviceType ServiceType) bool {
 	return false
 }
 
-func (s *ScanBucketOptions) haveRequestType(requestType BackupRequestType) bool {
-	for _, rt := range s.RequestType {
+func (o *ScanBucketOptions) haveRequestType(requestType BackupRequestType) bool {
+	for _, rt := range o.RequestType {
 		if rt == requestType {
 			return true
 		}
@@ -56,8 +56,14 @@ func (s *ScanBucketOptions) haveRequestType(requestType BackupRequestType) bool 
 	return false
 }
 
-func (s *ScanBucketOptions) matchStatefileVersion(statefileVersion string) bool {
-	return s.StatefileVersion == statefileVersion
+func (o *ScanBucketOptions) matchStatefileVersion(statefileVersion string) bool {
+	return o.StatefileVersion == statefileVersion
+}
+
+func (o *ScanBucketOptions) matchBackup(backup Backup) bool {
+	return o.haveServiceType(backup.ServiceType) &&
+		o.haveRequestType(backup.RequestType) &&
+		o.matchStatefileVersion(backup.StatefileVersion)
 }
 
 func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
@@ -124,20 +130,21 @@ func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
 
 func NewPgPeriodicV1Alpha1ScanOptions() *ScanBucketOptions {
 	return &ScanBucketOptions{
-		ServiceType: []ServiceType{PgService},
-		RequestType: []BackupRequestType{PeriodicBackupRequest},
-	}
-}
-
-func NewPgManualV1Alpha1ScanOptions() *ScanBucketOptions {
-	return &ScanBucketOptions{
 		ServiceType:      []ServiceType{PgService},
-		RequestType:      []BackupRequestType{ManualBackupRequest},
+		RequestType:      []BackupRequestType{PeriodicBackupRequest},
 		StatefileVersion: StatefileV1Alpha1,
 	}
 }
 
-func NewAllPGV1Alpha1ScanOptions() *ScanBucketOptions {
+func NewPgAllV1Alpha1ScanOptions() *ScanBucketOptions {
+	return &ScanBucketOptions{
+		ServiceType:      []ServiceType{PgService},
+		RequestType:      []BackupRequestType{PeriodicBackupRequest, ManualBackupRequest},
+		StatefileVersion: StatefileV1Alpha1,
+	}
+}
+
+func NewAllV1Alpha1ScanOptions() *ScanBucketOptions {
 	return &ScanBucketOptions{
 		ServiceType:      []ServiceType{PgService},
 		RequestType:      []BackupRequestType{PeriodicBackupRequest, ManualBackupRequest},

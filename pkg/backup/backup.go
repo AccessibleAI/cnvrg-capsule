@@ -594,9 +594,10 @@ func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
 
 func scanBucketForBackupOrRestoreRequests(bb <-chan Bucket) {
 	for bucket := range bb {
-		pgBackups := bucket.ScanBucket(NewPgPeriodicV1Alpha1ScanOptions())
-		rotateBackups(pgBackups)
-		for _, pgBackup := range bucket.ScanBucket(NewPgPeriodicV1Alpha1ScanOptions()) {
+		// rotate only periodic backups
+		rotateBackups(bucket.ScanBucket(NewPgPeriodicV1Alpha1ScanOptions()))
+		// backup or restart both periodic and manual backups
+		for _, pgBackup := range bucket.ScanBucket(NewPgAllV1Alpha1ScanOptions()) {
 			// run backups
 			go pgBackup.backup()
 			// run restores

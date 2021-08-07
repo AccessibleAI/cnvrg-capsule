@@ -170,9 +170,7 @@ func (a *AzureBucket) ScanBucket(o *ScanBucketOptions) []*Backup {
 					log.Errorf("error unmarshal Backup request, object: %s, err: %s", object.Name, err)
 					continue
 				}
-				if o.haveServiceType(backup.ServiceType) &&
-					o.haveRequestType(backup.RequestType) &&
-					o.matchStatefileVersion(backup.StatefileVersion) {
+				if o.matchBackup(backup) {
 					backups = append(backups, &backup)
 				}
 			}

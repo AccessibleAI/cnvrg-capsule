@@ -34,8 +34,9 @@ const (
 )
 
 var (
-	BuildVersion string
-	cliPgParams  = []param{
+	Version     string
+	Build       string
+	cliPgParams = []param{
 		{name: "id", shorthand: "", value: "", usage: "backup id"},
 		{name: "list", shorthand: "l", value: false, usage: "list backups"},
 		{name: "delete", shorthand: "", value: false, usage: "delete backup"},
@@ -82,7 +83,7 @@ var capsuleVersion = &cobra.Command{
 	Use:   "version",
 	Short: "Print cnvrg-capsule version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("🐾 version: %s\n", BuildVersion)
+		fmt.Printf("🐾 version: %s build: %s \n", Version, Build)
 	},
 }
 
@@ -93,6 +94,7 @@ var startCapsule = &cobra.Command{
 		stopChan := make(chan bool)
 		runMode := RunMode(viper.GetString("mode"))
 		log.Infof("starting capsule, mode: %s", runMode)
+		log.Infof("capsule version: %s, build: %s", Version, Build)
 		if runMode == AllInOne || runMode == Api {
 			go apiserver.RunApi()
 		}
@@ -207,7 +209,7 @@ func cliDumpBucketSample() {
 func cliListBackups() {
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.NewAllPGV1Alpha1ScanOptions())...)
+		backups = append(backups, bucket.ScanBucket(backup.NewAllV1Alpha1ScanOptions())...)
 		if len(backups) == 0 {
 			log.Info("backup list is empty!")
 			return
@@ -388,12 +390,13 @@ func selectBackup(selector string) *backup.Backup {
 --------- Backup ----------
 {{ "Id:" | faint }}	{{ .BackupId }}
 {{ "Date:" | faint }}	{{ .Date }}
-{{ "Type:" | faint }}	{{ .ServiceType }}
-{{ "Status:" | faint }}	{{ if eq .Status "finished" }}{{ printf "%s" .Status | green }} {{ else }} {{ printf "%s" .Status | red }} {{ end }} `,
+{{ "ServiceType:" | faint }}	{{ .ServiceType }}
+{{ "RequestType:" | faint }}	{{ .RequestType }}
+{{ "Status:" | faint }}	{{ if eq .Status "finished" }}{{ printf "%s" .Status | green }}{{ else }}{{ printf "%s" .Status | red }}{{ end }} `,
 	}
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.NewPgPeriodicV1Alpha1ScanOptions())...)
+		backups = append(backups, bucket.ScanBucket(backup.NewAllV1Alpha1ScanOptions())...)
 	}
 	if len(backups) == 0 {
 		log.Info("backup list is empty!")
