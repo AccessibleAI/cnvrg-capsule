@@ -225,7 +225,7 @@ func cliDumpBucketSample() {
 func cliListBackups() {
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+		backups = append(backups, bucket.ScanBucket(backup.NewPgPeriodicScanOptions())...)
 		if len(backups) == 0 {
 			log.Info("backup list is empty!")
 			return
@@ -348,7 +348,7 @@ func cliDownloadBackup() {
 	}
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+		backups = append(backups, bucket.ScanBucket(backup.NewPgPeriodicScanOptions())...)
 	}
 
 	backupSelect := promptui.Select{
@@ -440,7 +440,7 @@ func selectBackup(selector string) *backup.Backup {
 	}
 	var backups []*backup.Backup
 	for _, bucket := range backup.GetBackupBuckets() {
-		backups = append(backups, bucket.ScanBucket(backup.PgService)...)
+		backups = append(backups, bucket.ScanBucket(backup.NewPgPeriodicScanOptions())...)
 	}
 	if len(backups) == 0 {
 		log.Info("backup list is empty!")

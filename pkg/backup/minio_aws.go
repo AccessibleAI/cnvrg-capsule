@@ -78,8 +78,8 @@ func (m *MinioBucket) Remove(backupId string) error {
 	return nil
 }
 
-func (m *MinioBucket) ScanBucket(serviceType ServiceType, requestType BackupRequestType) []*Backup {
-	log.Infof("scanning bucket for serviceType: %s", serviceType)
+func (m *MinioBucket) ScanBucket(o *ScanBucketOptions) []*Backup {
+	log.Infof("scanning bucket for serviceType: %s", o.ServiceType)
 	var backups []*Backup
 	mc := GetMinioClient(m)
 	lo := minio.ListObjectsOptions{Prefix: m.GetDstDir(), Recursive: true}
@@ -106,7 +106,7 @@ func (m *MinioBucket) ScanBucket(serviceType ServiceType, requestType BackupRequ
 				log.Errorf("error unmarshal Backup request, object: %s, err: %s", object.Key, err)
 				continue
 			}
-			if backup.ServiceType == serviceType && backup.RequestType == requestType {
+			if o.haveServiceType(backup.ServiceType) && o.haveRequestType(backup.RequestType) {
 				backups = append(backups, &backup)
 			}
 		}

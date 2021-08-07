@@ -173,9 +173,9 @@ func (g *GcpBucket) DownloadFile(objectName, localFile string) error {
 	return nil
 }
 
-func (g *GcpBucket) ScanBucket(serviceType ServiceType, requestType BackupRequestType) []*Backup {
+func (g *GcpBucket) ScanBucket(o *ScanBucketOptions) []*Backup {
 
-	log.Infof("scanning bucket for serviceType: %s", serviceType)
+	log.Infof("scanning bucket for serviceType: %s", o.ServiceType)
 	var backups []*Backup
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx, option.WithCredentialsJSON([]byte(g.KeyJson)))
@@ -213,7 +213,7 @@ func (g *GcpBucket) ScanBucket(serviceType ServiceType, requestType BackupReques
 				log.Errorf("error unmarshal Backup request, object: %s, err: %s", attrs.Name, err)
 				continue
 			}
-			if backup.ServiceType == serviceType && backup.RequestType == requestType {
+			if o.haveServiceType(backup.ServiceType) && o.haveRequestType(backup.RequestType) {
 				backups = append(backups, &backup)
 			}
 		}

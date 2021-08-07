@@ -10,6 +10,11 @@ type Status string
 
 type BucketType string
 
+type ScanBucketOptions struct {
+	ServiceType []ServiceType
+	RequestType []BackupRequestType
+}
+
 type Bucket interface {
 	Ping() error
 	BucketId() string
@@ -18,7 +23,7 @@ type Bucket interface {
 	Remove(backupId string) error
 	DownloadFile(objectName, localFile string) error
 	UploadFile(path, objectName string) error
-	ScanBucket(serviceType ServiceType, requestType BackupRequestType) []*Backup
+	ScanBucket(o *ScanBucketOptions) []*Backup
 	SyncMetadataState(state, objectName string) error
 }
 
@@ -29,9 +34,26 @@ const (
 	Failed         Status = "failed"
 	Finished       Status = "finished"
 	RestoreRequest Status = "restorerequest"
-	Restored       Status = "restored"
 	Statefile      string = "statefile.json"
 )
+
+func (s *ScanBucketOptions) haveServiceType(serviceType ServiceType) bool {
+	for _, st := range s.ServiceType {
+		if st == serviceType {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *ScanBucketOptions) haveRequestType(requestType BackupRequestType) bool {
+	for _, rt := range s.RequestType {
+		if rt == requestType {
+			return true
+		}
+	}
+	return false
+}
 
 func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
 	n := types.NamespacedName{Namespace: ns, Name: bucketName}
@@ -93,6 +115,20 @@ func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
 	err := &UnsupportedBucketError{}
 	log.Error(err)
 	return nil, err
+}
+
+func NewPgPeriodicScanOptions() *ScanBucketOptions {
+	return &ScanBucketOptions{
+		ServiceType: []ServiceType{PgService},
+		RequestType: []BackupRequestType{PeriodicBackupRequest},
+	}
+}
+
+func NewAllScanOptions() *ScanBucketOptions {
+	return &ScanBucketOptions{
+		ServiceType: []ServiceType{PgService},
+		RequestType: []BackupRequestType{PeriodicBackupRequest, ManualBackupRequest},
+	}
 }
 
 func getDestinationDir(dstDir string) string {

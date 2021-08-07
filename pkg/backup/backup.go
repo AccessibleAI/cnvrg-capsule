@@ -31,6 +31,7 @@ type Backup struct {
 	Service     Service           `json:"service"`
 	Restores    []*Restore        `json:"restores"`
 	Status      Status            `json:"status"`
+	Version     string            `json:"version"`
 }
 
 type PvcAnnotation string
@@ -178,7 +179,7 @@ func (b *Backup) createBackupRequest() error {
 }
 
 func (b *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
-	backups := b.Bucket.ScanBucket(serviceType, PeriodicBackupRequest)
+	backups := b.Bucket.ScanBucket(NewPgPeriodicScanOptions())
 	// backup is needed if backups list is empty
 	if len(backups) == 0 {
 		log.Info("no backups has been done so far, backup is required")
@@ -198,7 +199,7 @@ func (b *Backup) ensureBackupRequestIsNeeded(serviceType ServiceType) bool {
 		return true
 	}
 
-	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucketId: %s, cleanup backups manually, and ask Dima wtf?", b.Bucket.BucketId())
+	log.Warnf("max rotation has been reached (how come? this shouldn't happen?! 🙀) bucketId: %s, go and cleanup backups manually.", b.Bucket.BucketId())
 	return false
 }
 
@@ -236,6 +237,12 @@ func (b *Backup) UnmarshalJSON(bytes []byte) error {
 	//get the bucket struct
 	var objMap map[string]*json.RawMessage
 	if err := json.Unmarshal(bytes, &objMap); err != nil {
+		log.Error(err)
+		return err
+	}
+
+	// unmarshal version
+	if err := json.Unmarshal(*objMap["version"], &b.Version); err != nil {
 		log.Error(err)
 		return err
 	}
@@ -409,6 +416,7 @@ func NewBackup(bucket Bucket, backupService Service, period string, rotation int
 		Period:      getPeriodInSeconds(period),
 		Rotation:    rotation,
 		Restores:    []*Restore{},
+		Version:     "v1alpha1",
 	}
 	log.Debugf("new backup initiated: %#v", b)
 	return b
@@ -561,9 +569,9 @@ func discoverCnvrgAppBackupBucketConfiguration(bc chan<- Bucket) {
 
 func scanBucketForBackupOrRestoreRequests(bb <-chan Bucket) {
 	for bucket := range bb {
-		pgBackups := bucket.ScanBucket(PgService, PeriodicBackupRequest)
+		pgBackups := bucket.ScanBucket(NewPgPeriodicScanOptions())
 		rotateBackups(pgBackups)
-		for _, pgBackup := range bucket.ScanBucket(PgService, PeriodicBackupRequest) {
+		for _, pgBackup := range bucket.ScanBucket(NewPgPeriodicScanOptions()) {
 			// run backups
 			go pgBackup.backup()
 			// run restores
