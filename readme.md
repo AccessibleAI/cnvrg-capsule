@@ -66,3 +66,34 @@ capsule completion bash > /usr/local/etc/bash_completion.d/capsule
 
 
 
+### Usage
+
+Capsule can be used in two mods, cli and daemon. 
+The default setup for the capsule is to run it at least once as a daemon inside K8s cluster. 
+Then, you can also install the capsule binary for running administrative tasks, such as list, describe or restore backups.
+
+To start capsule in daemon mode
+```shell
+ capsule start
+```
+
+For the administrative tasks 
+```shell
+# list PostgreSQL backups 
+capusle pg --list
+
+# describe PostgreSQL backups
+capusle pg --describe
+
+# manually create PostgreSQL backup
+capusle pg --create
+
+# trigger PostgreSQL restore
+capusle pg --restore
+
+# downloading PostgreSQL backup
+capusle pg --download
+
+# manually delete existing  PostgreSQL backup
+capusle pg --delete
+```

@@ -82,6 +82,3 @@ major-version:
 	newVersion=$$(echo $$currentVersion | tr . " " | awk -v pv=$$majorVersion '{print pv".0.0"}') ;\
 	echo $$newVersion > /tmp/newCapsuleVersion ;\
     }
-
-upload:
-	aws s3 cp ./bin/ s3://cnvrg-public-images --recursive
