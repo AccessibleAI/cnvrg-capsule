@@ -80,7 +80,7 @@ var _ = Describe("Backup", func() {
 				testSimplePostgreSQLBackup(testBucket())
 			})
 
-			It("Test backup with Restore", func() {
+			It("Test backup with restore", func() {
 				testBackupWithRestore(testBucket())
 			})
 
@@ -123,7 +123,7 @@ var _ = Describe("Backup", func() {
 				testSimplePostgreSQLBackup(testBucket())
 			})
 
-			It("Test backup with Restore", func() {
+			It("Test backup with restore", func() {
 				testBackupWithRestore(testBucket())
 			})
 
@@ -166,7 +166,7 @@ var _ = Describe("Backup", func() {
 				testSimplePostgreSQLBackup(testBucket())
 			})
 
-			It("Test backup with Restore", func() {
+			It("Test backup with restore", func() {
 				testBackupWithRestore(testBucket())
 			})
 
@@ -209,7 +209,7 @@ var _ = Describe("Backup", func() {
 				testSimplePostgreSQLBackup(testBucket())
 			})
 
-			It("Test backup with Restore", func() {
+			It("Test backup with restore", func() {
 				testBackupWithRestore(testBucket())
 			})
 

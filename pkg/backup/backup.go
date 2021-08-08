@@ -341,10 +341,10 @@ func (b *Backup) SyncState() error {
 	return nil
 }
 
-func (b *Backup) Restore() error {
+func (b *Backup) restore() error {
 	var restore *Restore
 
-	// Restore when status is RestoreRequest
+	// restore when status is RestoreRequest
 	for _, requestRestore := range b.Restores {
 		if requestRestore.Status == RestoreRequest {
 			restore = requestRestore
@@ -358,7 +358,7 @@ func (b *Backup) Restore() error {
 			log.Infof("restore %s is active, skipping", b.BackupId)
 			return nil
 		}
-		// activate Restore - so other go routine won't initiate Restore process again
+		// activate restore - so other go routine won't initiate restore process again
 		b.activate()
 		// deactivate backup
 		defer b.deactivate()
@@ -368,7 +368,7 @@ func (b *Backup) Restore() error {
 			_ = b.SyncState()
 			return err
 		}
-		// run Restore
+		// run restore
 		if err := b.Service.Restore(); err != nil {
 			restore.Status = Failed
 			_ = b.SyncState()
@@ -379,6 +379,9 @@ func (b *Backup) Restore() error {
 		if err := b.SyncState(); err != nil {
 			return err
 		}
+
+		// cleanup temp storage
+		_ = b.Service.CleanupTempStorage()
 	}
 	return nil
 }
@@ -610,7 +613,7 @@ func scanBucketForBackupOrRestoreRequests(bb <-chan Bucket) {
 			// run backups
 			go pgBackup.backup()
 			// run restores
-			go pgBackup.Restore()
+			go pgBackup.restore()
 		}
 	}
 }
