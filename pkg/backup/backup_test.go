@@ -405,25 +405,25 @@ func getPgBackupService() *PgBackupService {
 
 func testPeriodParsingForSeconds(bucket Bucket) {
 	var seconds float64 = 10
-	backup := NewBackup(bucket, getPgBackupService(), "10s", 3, PeriodicBackupRequest)
+	backup := NewBackup(bucket, getPgBackupService(), "10s", 3, PeriodicBackupRequest, "")
 	Expect(seconds).To(Equal(backup.Period))
 }
 
 func testPeriodParsingForMinutes(bucket Bucket) {
 	var seconds float64 = 60
-	backup := NewBackup(bucket, getPgBackupService(), "1m", 3, PeriodicBackupRequest)
+	backup := NewBackup(bucket, getPgBackupService(), "1m", 3, PeriodicBackupRequest, "")
 	Expect(seconds).To(Equal(backup.Period))
 }
 
 func testPeriodParsingForHours(bucket Bucket) {
 	var seconds float64 = 3600
-	backup := NewBackup(bucket, getPgBackupService(), "1h", 3, PeriodicBackupRequest)
+	backup := NewBackup(bucket, getPgBackupService(), "1h", 3, PeriodicBackupRequest, "")
 	Expect(seconds).To(Equal(backup.Period))
 }
 
 func testPeriodNotExpired(bucket Bucket) {
 	for i := 0; i < 5; i++ {
-		backup := NewBackup(bucket, getPgBackupService(), "10m", 3, PeriodicBackupRequest)
+		backup := NewBackup(bucket, getPgBackupService(), "10m", 3, PeriodicBackupRequest, "")
 		_ = backup.CreateBackupRequest()
 	}
 	Expect(len(bucket.ScanBucket(scanOptions))).To(Equal(1))
@@ -431,16 +431,16 @@ func testPeriodNotExpired(bucket Bucket) {
 
 func testPeriodExpired(bucket Bucket) {
 
-	backup := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup.CreateBackupRequest()
 	time.Sleep(1 * time.Second)
-	backup = NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup = NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup.CreateBackupRequest()
 	time.Sleep(1 * time.Second)
-	backup = NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup = NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup.CreateBackupRequest()
 	time.Sleep(1 * time.Second)
-	backup = NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup = NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup.CreateBackupRequest()
 	time.Sleep(1 * time.Second)
 
@@ -452,7 +452,7 @@ func testBucketPing(bucket Bucket) {
 }
 
 func testSimplePostgreSQLBackup(bucket Bucket) {
-	backup := NewBackup(bucket, getPgBackupService(), "10m", 3, PeriodicBackupRequest)
+	backup := NewBackup(bucket, getPgBackupService(), "10m", 3, PeriodicBackupRequest, "")
 	_ = backup.CreateBackupRequest()
 	backups := bucket.ScanBucket(scanOptions)
 	Expect(len(backups)).To(Equal(1))
@@ -461,15 +461,15 @@ func testSimplePostgreSQLBackup(bucket Bucket) {
 
 func testRotationOfCompletedBackups(bucket Bucket) {
 
-	backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup0.CreateBackupRequest()
 	time.Sleep(1 * time.Second)
 
-	backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup1.CreateBackupRequest()
 	time.Sleep(1 * time.Second)
 
-	backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup2.CreateBackupRequest()
 
 	backups := bucket.ScanBucket(scanOptions)
@@ -492,15 +492,15 @@ func testRotationOfCompletedBackups(bucket Bucket) {
 
 func testRotationOfNOtCompletedBackups(bucket Bucket) {
 
-	backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup0 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup0.CreateBackupRequest()
 	time.Sleep(1 * time.Second)
 
-	backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup1 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup1.CreateBackupRequest()
 	time.Sleep(1 * time.Second)
 
-	backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest)
+	backup2 := NewBackup(bucket, getPgBackupService(), "1s", 2, PeriodicBackupRequest, "")
 	_ = backup2.CreateBackupRequest()
 
 	backups := bucket.ScanBucket(scanOptions)
@@ -515,7 +515,7 @@ func testRotationOfNOtCompletedBackups(bucket Bucket) {
 
 func testBackupWithRestore(bucket Bucket) {
 
-	backup := NewBackup(bucket, getPgBackupService(), "10m", 3, PeriodicBackupRequest)
+	backup := NewBackup(bucket, getPgBackupService(), "10m", 3, PeriodicBackupRequest, "")
 	tableName := fmt.Sprintf("auto_tests_minio_%s", shortuuid.New())
 	execSql(fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
 	execSql(fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
@@ -524,7 +524,6 @@ func testBackupWithRestore(bucket Bucket) {
 	Expect(len(backups)).To(Equal(1))
 	Expect(backup.backup()).To(BeNil())
 	execSql(fmt.Sprintf("drop table %s;", tableName))
-	Expect(os.Remove(backup.Service.DumpfileLocalPath())).To(BeNil())
 	Expect(backup.Service.DownloadBackupAssets(backup.Bucket, backup.BackupId)).To(BeNil())
 	args := []string{"--dbname=postgresql://cnvrg:cnvrg@127.0.0.1:5432/postgres",
 		"--clean",

@@ -44,6 +44,7 @@ var (
 		{name: "download", shorthand: "d", value: false, usage: "download backup"},
 		{name: "restore", shorthand: "r", value: false, usage: "request backup restore"},
 		{name: "describe", shorthand: "", value: false, usage: "describe backup metadata"},
+		{name: "description", shorthand: "", value: "", usage: "description for backup request"},
 	}
 	rootParams = []param{
 		{name: "verbose", shorthand: "v", value: false, usage: "--verbose=true|false"},
@@ -279,11 +280,13 @@ func cliCreateBackup() {
 	rotation := ds.Rotation
 	backupServiceName := fmt.Sprintf("%s/%s", ds.PvcNamespace, ds.PvcName)
 	pgBackupService := backup.NewPgBackupService(backupServiceName, *pgCreds)
-	b := backup.NewBackup(bucket, pgBackupService, period, rotation, backup.ManualBackupRequest)
+	description := viper.GetString("description")
+	b := backup.NewBackup(bucket, pgBackupService, period, rotation, backup.ManualBackupRequest, description)
 	if err := b.CreateBackupRequest(); err != nil {
 		log.Errorf("error creating backup request, err: %s", err)
 		os.Exit(1)
 	}
+	log.Infof("created backup request, ID: %s", b.BackupId)
 }
 
 func cliDownloadBackup() {
@@ -362,6 +365,7 @@ func selectBackup(selector string) *backup.Backup {
 {{ "Date:" | faint }}	{{ .Date }}
 {{ "ServiceType:" | faint }}	{{ .ServiceType }}
 {{ "RequestType:" | faint }}	{{ .RequestType }}
+{{ "Description:" | faint }}	{{ .Description }}
 {{ "Status:" | faint }}	{{ if eq .Status "finished" }}{{ printf "%s" .Status | green }}{{ else }}{{ printf "%s" .Status | red }}{{ end }} `,
 	}
 	var backups []*backup.Backup

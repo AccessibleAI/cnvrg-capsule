@@ -31,6 +31,7 @@ type Backup struct {
 	Service          Service           `json:"service"`
 	Restores         []*Restore        `json:"restores"`
 	Status           Status            `json:"status"`
+	Description      string            `json:"description"`
 	StatefileVersion string            `json:"statefileVersion"`
 }
 
@@ -220,6 +221,12 @@ func (b *Backup) UnmarshalStatefileV1Alpha1(objMap map[string]*json.RawMessage) 
 
 	// unmarshal backupId
 	if err := json.Unmarshal(*objMap["backupId"], &b.BackupId); err != nil {
+		log.Error(err)
+		return err
+	}
+
+	// unmarshal description
+	if err := json.Unmarshal(*objMap["description"], &b.Description); err != nil {
 		log.Error(err)
 		return err
 	}
@@ -440,7 +447,7 @@ func NewDiscoveryInputs(inputs map[string]string, pvcName, ns string) *Discovery
 
 }
 
-func NewBackup(bucket Bucket, backupService Service, period string, rotation int, requestType BackupRequestType) *Backup {
+func NewBackup(bucket Bucket, backupService Service, period string, rotation int, requestType BackupRequestType, description string) *Backup {
 	b := &Backup{
 		BackupId:         fmt.Sprintf("%s-%s", backupService.ServiceType(), shortuuid.New()),
 		RequestType:      requestType,
@@ -453,6 +460,7 @@ func NewBackup(bucket Bucket, backupService Service, period string, rotation int
 		Period:           getPeriodInSeconds(period),
 		Rotation:         rotation,
 		Restores:         []*Restore{},
+		Description:      description,
 		StatefileVersion: StatefileV1Alpha1,
 	}
 	log.Debugf("new backup initiated: %#v", b)
@@ -585,7 +593,7 @@ func discoverPgBackups(ds *DiscoveryInputs) error {
 	rotation := ds.Rotation
 	backupServiceName := fmt.Sprintf("%s/%s", ds.PvcNamespace, ds.PvcName)
 	pgBackupService := NewPgBackupService(backupServiceName, *pgCreds)
-	backup := NewBackup(bucket, pgBackupService, period, rotation, PeriodicBackupRequest)
+	backup := NewBackup(bucket, pgBackupService, period, rotation, PeriodicBackupRequest, "")
 	if err := backup.CreateBackupRequest(); err != nil {
 		log.Errorf("error creating backup request, err: %s", err)
 		return err
