@@ -362,6 +362,12 @@ func (b *Backup) Restore() error {
 		b.activate()
 		// deactivate backup
 		defer b.deactivate()
+		// download assets for restore
+		if err := b.Service.DownloadBackupAssets(b.Bucket, b.BackupId); err != nil {
+			restore.Status = Failed
+			_ = b.SyncState()
+			return err
+		}
 		// run Restore
 		if err := b.Service.Restore(); err != nil {
 			restore.Status = Failed
