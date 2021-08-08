@@ -54,13 +54,15 @@ Deployment options:
 
 ![1 to 1 but many capsules](./docs/one-to-one-but-many.png)
 
-### Deployment 
+### Install locally   
 
-The cnvrg capsule will be automatically deployed by `cnvrg-operator`. 
-To deploy the capsule manually inside K8s cluster, 
-just create all K8s manifest from `./deploy` directory, or run `make deploy` 
+Download latest release from [capsule release page](https://github.com/AccessibleAI/cnvrg-capsule/releases) 
+Once downloaded, copy the binary to your bin path, and optionally install completion
+```shell
+mv capsule-*-x86_64 /usr/local/bin/capsule
+chmod +x /usr/local/bin/capsule
+capsule completion bash > /usr/local/etc/bash_completion.d/capsule
+```
 
-To install`capsule` locally on your Mac or Linux workstation, clone the repo and run
-* Mac: `make build-mac` will create `bin/capsule-linux-x86_64` 
-* Linux: `make build-linux` will create `bin/capsule-darwin-x86_64`
+
 
