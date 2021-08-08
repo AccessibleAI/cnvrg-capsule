@@ -106,6 +106,9 @@ func (b *Backup) backup() error {
 		return err
 	}
 
+	// cleanup temp storage
+	_ = b.Service.CleanupTempStorage()
+
 	// finish backup
 	if err := b.SetStatusAndSyncState(Finished); err != nil {
 		return err

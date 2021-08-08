@@ -7,6 +7,7 @@ import (
 	"github.com/lithammer/shortuuid/v3"
 	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/types"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -143,6 +144,20 @@ func (pgs *PgBackupService) Restore() error {
 
 	log.Infof("restore %s is finished", pgs.Dumpfile)
 
+	return nil
+}
+
+func (pgs *PgBackupService) CleanupTempStorage() error {
+	if _, err := os.Stat(pgs.DumpfileLocalPath()); err != nil {
+		log.Error(err)
+		return err
+	} else {
+		if err := os.Remove(pgs.DumpfileLocalPath()); err != nil {
+			log.Error(err)
+			return err
+		}
+	}
+	log.Infof("%s has been removed from tmpe storage", pgs.DumpfileLocalPath())
 	return nil
 }
 

@@ -11,6 +11,7 @@ type Service interface {
 	ServiceType() ServiceType
 	UploadBackupAssets(bucket Bucket, id string) error
 	DownloadBackupAssets(bucket Bucket, id string) error
+	CleanupTempStorage() error
 }
 
 const (
