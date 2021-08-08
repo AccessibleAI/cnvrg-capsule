@@ -73,8 +73,8 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "cnvrg-capsule",
-	Short: "cnvrg-capsule - Cnvrg backup and restore service",
+	Use:   "capsule",
+	Short: "capsule - Cnvrg backup and restore service",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		setupLogging()
 		dumpDirPath := viper.GetString("dumpdir")
@@ -89,7 +89,7 @@ var rootCmd = &cobra.Command{
 
 var capsuleVersion = &cobra.Command{
 	Use:   "version",
-	Short: "Print cnvrg-capsule version",
+	Short: "Print capsule version",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("🐾 version: %s build: %s \n", Version, Build)
 	},
@@ -165,12 +165,9 @@ func setupCommands() {
 	viper.SetEnvPrefix("CNVRG_CAPSULE")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	// Setup commands
-	//setParams(cliIndexfileParams, cliIndexfile)
 	setParams(startCapsuleParams, startCapsule)
 	setParams(rootParams, rootCmd)
 	setParams(cliPgParams, cliBackupPg)
-	//cliBackup.AddCommand(cliBackupPg)
-	//rootCmd.AddCommand(cliIndexfile)
 	rootCmd.AddCommand(cliBackupPg)
 	rootCmd.AddCommand(startCapsule)
 	rootCmd.AddCommand(capsuleVersion)

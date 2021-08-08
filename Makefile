@@ -1,8 +1,8 @@
 build-mac:
 	go build -ldflags="-X 'main.Build=$$(git rev-parse --short HEAD)' -X 'main.Version=$$(cat /tmp/newCapsuleVersion)'" -v -o bin/capsule-darwin-x86_64 main.go
 
-build-linux:
-	docker run --rm -v ${PWD}:/usr/src/capsule -w /usr/src/capsule golang:1.16 /bin/bash -c "GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/capsule-linux-x86_64 main.go"
+build-linux: docker-build
+	docker run -v ${PWD}:/tmp --rm -it docker.io/cnvrg/cnvrg-capsule:$(shell cat /tmp/newCapsuleVersion)  bash -c "cp /opt/app-root/capsule /tmp/bin/capsule-linux-x86_64"
 
 install-mac: build-mac
 	mv ./bin/capsule-darwin-x86_64 /usr/local/bin/capsule
@@ -82,3 +82,6 @@ major-version:
 	newVersion=$$(echo $$currentVersion | tr . " " | awk -v pv=$$majorVersion '{print pv".0.0"}') ;\
 	echo $$newVersion > /tmp/newCapsuleVersion ;\
     }
+
+upload:
+	aws s3 cp ./bin/ s3://cnvrg-public-images --recursive
