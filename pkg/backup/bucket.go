@@ -3,6 +3,7 @@ package backup
 import (
 	"fmt"
 	"github.com/AccessibleAI/cnvrg-capsule/pkg/k8s"
+	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -83,7 +84,7 @@ func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
 			string(bucketSecret.Data["CNVRG_STORAGE_ACCESS_KEY"]),
 			string(bucketSecret.Data["CNVRG_STORAGE_SECRET_KEY"]),
 			string(bucketSecret.Data["CNVRG_STORAGE_BUCKET"]),
-			""), nil
+			viper.GetString("dst-dir")), nil
 	}
 
 	if bucketType == AwsBucketType {
@@ -93,14 +94,14 @@ func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
 				string(bucketSecret.Data["CNVRG_STORAGE_ACCESS_KEY"]),
 				string(bucketSecret.Data["CNVRG_STORAGE_SECRET_KEY"]),
 				string(bucketSecret.Data["CNVRG_STORAGE_BUCKET"]),
-				""), nil
+				viper.GetString("dst-dir")), nil
 		}
 
 		if string(bucketSecret.Data["CNVRG_STORAGE_ACCESS_KEY"]) == "" && string(bucketSecret.Data["CNVRG_STORAGE_SECRET_KEY"]) == "" {
 			return NewAwsIamBucket(
 				string(bucketSecret.Data["CNVRG_STORAGE_REGION"]),
 				string(bucketSecret.Data["CNVRG_STORAGE_BUCKET"]),
-				""), nil
+				viper.GetString("dst-dir")), nil
 		}
 	}
 	if bucketType == AzureBucketType {
@@ -108,7 +109,7 @@ func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
 			string(bucketSecret.Data["CNVRG_STORAGE_AZURE_ACCOUNT_NAME"]),
 			string(bucketSecret.Data["CNVRG_STORAGE_AZURE_ACCESS_KEY"]),
 			string(bucketSecret.Data["CNVRG_STORAGE_AZURE_CONTAINER"]),
-			"",
+			viper.GetString("dst-dir"),
 		), nil
 	}
 	if bucketType == GcpBucketType {
@@ -119,7 +120,7 @@ func NewBucketWithAutoDiscovery(ns, bucketName string) (Bucket, error) {
 			string(gcpBucketSecret.Data["key.json"]),
 			string(bucketSecret.Data["CNVRG_STORAGE_PROJECT"]),
 			string(bucketSecret.Data["CNVRG_STORAGE_BUCKET"]),
-			""), nil
+			viper.GetString("dst-dir")), nil
 
 	}
 

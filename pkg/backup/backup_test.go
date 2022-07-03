@@ -40,7 +40,7 @@ var _ = Describe("Backup", func() {
 		pullImage(minioImage)
 		runPgContainer()
 		runMinioContainer()
-		checkServiceReadiness("5432")
+		checkPgReadiness()
 		checkServiceReadiness("9000")
 
 	})
@@ -50,7 +50,7 @@ var _ = Describe("Backup", func() {
 	})
 
 	Describe("Backup testing", func() {
-		Context("Minio bucket", func() {
+		FContext("Minio bucket", func() {
 			testBucket := initMinioBucket
 			It("Test period parsing for seconds", func() {
 				testPeriodParsingForSeconds(testBucket())
@@ -80,7 +80,7 @@ var _ = Describe("Backup", func() {
 				testSimplePostgreSQLBackup(testBucket())
 			})
 
-			It("Test backup with restore", func() {
+			FIt("Test backup with restore", func() {
 				testBackupWithRestore(testBucket())
 			})
 
@@ -280,6 +280,22 @@ func shellCmd(command string, args []string) error {
 	return nil
 }
 
+func checkPgReadiness() {
+	dbUrl := fmt.Sprintf("postgres://%s:%s@%s:5432/%s", pgCreds.User, pgCreds.Pass, pgCreds.Host, pgCreds.DbName)
+	for i := 0; i < 10; i++ {
+		conn, err := pgx.Connect(context.Background(), dbUrl)
+		if err != nil {
+			log.Warnf("db not ready yet... retrying: %d", i)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		conn.Close(context.Background())
+		return
+	}
+	log.Fatal("unable to connect to database")
+
+}
+
 func checkServiceReadiness(port string) {
 	for i := 0; i < 10; i++ {
 		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), time.Second)
@@ -335,7 +351,6 @@ func initAwsBucket() *MinioBucket {
 		os.Getenv("AWS_SECRET_KEY"),
 		"cnvrg-capsule-test-bucket",
 		bn,
-
 	)
 }
 
@@ -515,10 +530,10 @@ func testRotationOfNOtCompletedBackups(bucket Bucket) {
 
 func testBackupWithRestore(bucket Bucket) {
 
-	backup := NewBackup(bucket, getPgBackupService(), "10m", 3, PeriodicBackupRequest, "")
 	tableName := fmt.Sprintf("auto_tests_minio_%s", shortuuid.New())
 	execSql(fmt.Sprintf("create table %s(f1 varchar(255), f2 varchar(255));", tableName))
 	execSql(fmt.Sprintf("insert into %s(f1, f2) values ('foo', 'bar');", tableName))
+	backup := NewBackup(bucket, getPgBackupService(), "10m", 3, PeriodicBackupRequest, "")
 	_ = backup.CreateBackupRequest()
 	backups := bucket.ScanBucket(scanOptions)
 	Expect(len(backups)).To(Equal(1))
